@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Competitor } from "@/lib/events";
+import type { CiteVerdict, Competitor, TeamMember } from "@/lib/events";
 import type { Activity } from "./useAgent";
 
 // ---------------------------------------------------------------------------
@@ -46,12 +46,23 @@ interface Props {
   done: boolean;
   thinking: string;
   status: string;
+  team?: TeamMember[];
+}
+
+interface AgentFocus {
+  id: string; // "lead" or researcher id
+  label: string | null; // shown next to researcher comets
+  lead: boolean;
+  focus: string | null; // node id to fly to; "center" or "home:<id>"; null = fade out
+  home: Vec;
 }
 
 interface Layout {
-  sources: { id: string; host: string; failed: boolean; owner: string | null; target: Vec; spawn: Vec }[];
+  sources: { id: string; host: string; failed: boolean; owner: string | null; target: Vec; spawn: Vec; verdict: CiteVerdict | "checking" | null }[];
   comps: { id: string; name: string; threat: Competitor["threat_level"]; target: Vec }[];
-  focus: string | null; // node id the agent is heading to ("center" for the subject)
+  focus: string | null; // where the lead agent is heading ("center" for the subject)
+  agents: AgentFocus[];
+  verified: { checked: number; supported: number } | null;
   verb: string;
   caption: string;
   searches: Activity[];
@@ -65,15 +76,30 @@ function computeLayout(p: Props): Layout {
   // Sources in first-read order.
   const order: { host: string; failed: boolean }[] = [];
   const seen = new Map<string, { host: string; failed: boolean }>();
+  const verdicts = new Map<string, CiteVerdict | "checking">();
+  const verdictRound = new Map<string, number>();
   for (const a of log) {
-    if (a.kind !== "fetch" || !a.url) continue;
+    if ((a.kind !== "fetch" && a.kind !== "cite") || !a.url) continue;
     const h = host(a.url);
+    const failed = a.kind === "fetch" ? !!a.error : false;
     const prev = seen.get(h);
     if (!prev) {
-      const s = { host: h, failed: !!a.error };
+      const s = { host: h, failed };
       seen.set(h, s);
       order.push(s);
-    } else if (!a.error) prev.failed = false;
+    } else if (!failed) prev.failed = false;
+    if (a.kind === "cite") {
+      const v = a.verdict ?? "checking";
+      const round = Number(a.id.split("-")[1]) || 0;
+      const was = verdicts.get(h);
+      // Latest round wins; within one round, a host with several citations shows its worst result.
+      if (!was || round > (verdictRound.get(h) ?? 0)) {
+        verdicts.set(h, v);
+        verdictRound.set(h, round);
+      } else if (round === verdictRound.get(h) && (was === "checking" || v === "unsupported" || (v === "supported" && was === "unreachable"))) {
+        verdicts.set(h, v);
+      }
+    }
   }
 
   // Competitors on the inner ring, evenly spaced.
@@ -112,40 +138,80 @@ function computeLayout(p: Props): Layout {
     const o = owner.get(s.host);
     const target = o ? ell(angleOf.get(s.host)!, CLUSTER) : ell(spread[loose.indexOf(s)].a, spread[loose.indexOf(s)].r);
     const spawn = { x: target.x * 1.5, y: target.y * 1.5 };
-    return { id: `s:${s.host}`, host: s.host, failed: s.failed, owner: o?.id ?? null, target, spawn };
+    return { id: `s:${s.host}`, host: s.host, failed: s.failed, owner: o?.id ?? null, target, spawn, verdict: verdicts.get(s.host) ?? null };
   });
 
-  // What the agent is doing right now.
+  // Where each agent is heading.
+  const nodeFor = (a: Activity): string | null => {
+    if (a.kind === "fetch" || a.kind === "cite") return `s:${host(a.url)}`;
+    if (a.kind === "competitor") return `c:${a.name}`;
+    return null;
+  };
+  const lastBy = (agent: string) => [...log].reverse().find((a) => a.agent === agent);
+  const team = p.team ?? [];
+  const agents: AgentFocus[] = [];
+  const leadLast = lastBy("lead");
+  const teamWorking = team.some((m) => m.status === "working");
+  let leadFocus: string | null = p.running ? "center" : null;
+  if (p.running && leadLast && !(teamWorking && leadLast.kind !== "cite")) leadFocus = nodeFor(leadLast) ?? "center";
+  agents.push({ id: "lead", label: null, lead: true, focus: leadFocus, home: { x: 0, y: 0 } });
+  team.forEach((m, i) => {
+    const home = ell(-Math.PI / 2 + (i / Math.max(team.length, 1)) * Math.PI * 2 + 0.4, { rx: 120, ry: 58 });
+    const last = lastBy(m.id);
+    const focus = !p.running || m.status !== "working" ? null : (last && nodeFor(last)) || `home:${m.id}`;
+    agents.push({ id: m.id, label: m.name, lead: false, focus, home });
+  });
+
+  // The caption follows the most recent thing any agent did.
   const last = log[log.length - 1];
-  let focus: string | null = p.running ? "center" : null;
+  const who = (a: Activity) => (a.agent === "lead" ? "" : `${team.find((m) => m.id === a.agent)?.name ?? a.agent} · `);
   let verb = p.running ? "THINKING" : p.done ? "FILED" : "IDLE";
   let caption = p.running ? p.status || "Planning the research" : p.done ? "Report approved and filed" : "Stopped";
   if (p.running && last) {
     if (last.kind === "fetch") {
-      focus = `s:${host(last.url)}`;
       verb = last.done ? "READ" : "READING";
-      caption = last.title ? `${host(last.url)} — ${last.title}` : host(last.url);
+      caption = `${who(last)}${last.title ? `${host(last.url)} — ${last.title}` : host(last.url)}`;
     } else if (last.kind === "search") {
       verb = "SEARCHING";
-      caption = `“${last.query}”`;
+      caption = `${who(last)}“${last.query}”`;
     } else if (last.kind === "competitor") {
-      focus = `c:${last.name}`;
       verb = "FILING";
-      caption = `Profile of ${last.name}`;
+      caption = `${who(last)}profile of ${last.name}`;
+    } else if (last.kind === "cite") {
+      verb = "VERIFYING";
+      const v = last.verdict === "supported" ? " ✓" : last.verdict === "unsupported" ? " ✗ not supported" : last.verdict === "unreachable" ? " — couldn't open" : "";
+      caption = `${host(last.url)}${v} · “${last.claim.slice(0, 70)}”`;
     } else if (last.kind === "review") {
       verb = "REVIEW";
-      caption = last.approved ? "Reviewer approved the report" : "Reviewer sent it back — fixing it";
+      caption = last.approved ? "Reviewer approved the report" : "Report sent back — fixing it";
     }
   }
-  if (p.running && p.thinking) {
+  if (p.running && p.thinking && !teamWorking && last?.kind !== "cite") {
     verb = "THINKING";
     caption = p.thinking.slice(-120);
   }
+  if (p.running && teamWorking && (!last || last.kind === "review")) {
+    verb = "TEAM";
+    caption = `${team.filter((m) => m.status === "working").length} researchers working in parallel`;
+  }
+
+  const cites = log.filter((a): a is Extract<Activity, { kind: "cite" }> => a.kind === "cite");
+  const lastRound = cites.length ? cites[cites.length - 1].id.split("-")[1] : null;
+  const roundCites = cites.filter((c) => c.id.split("-")[1] === lastRound);
+  const lastReview = [...log].reverse().find((a): a is Extract<Activity, { kind: "review" }> => a.kind === "review");
+  // Once a round is reviewed, show the reviewer's totals; while checking, show live progress.
+  const reviewed = lastReview?.citations && String(lastReview.attempt) === lastRound ? lastReview.citations : null;
 
   return {
     sources,
     comps: comps.map(({ id, name, threat, target }) => ({ id, name, threat, target })),
-    focus,
+    focus: leadFocus,
+    agents,
+    verified: reviewed
+      ? { checked: reviewed.checked, supported: reviewed.supported }
+      : roundCites.length
+        ? { checked: roundCites.length, supported: roundCites.filter((c) => c.verdict === "supported").length }
+        : null,
     verb,
     caption,
     searches: log.filter((a) => a.kind === "search"),
@@ -167,7 +233,8 @@ export function AgentBoard(props: Props) {
   layoutRef.current = layout;
 
   const nodes = useRef(new Map<string, NodeState>());
-  const agent = useRef({ pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, trail: [] as Vec[], focus: "center" as string | null, alpha: 0 });
+  type Sim = { pos: Vec; vel: Vec; trail: Vec[]; focus: string | null; alpha: number; label: string | null; lead: boolean; home: Vec };
+  const sims = useRef(new Map<string, Sim>());
   const captionStart = useRef({ text: "", at: 0 });
   const lastEventAt = useRef(0);
   const doneAt = useRef<number | null>(null);
@@ -190,8 +257,9 @@ export function AgentBoard(props: Props) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  function targetOf(id: string | null): Vec {
+  function targetOf(id: string | null, home: Vec = { x: 0, y: 0 }): Vec {
     if (!id || id === "center") return { x: 0, y: 0 };
+    if (id.startsWith("home:")) return home;
     const L = layoutRef.current;
     const n = nodes.current.get(id);
     if (n) return n.pos;
@@ -222,31 +290,40 @@ export function AgentBoard(props: Props) {
     }
     for (const id of [...map.keys()]) if (!alive.has(id)) map.delete(id);
 
-    // Agent: a slightly under-damped spring; a sideways kick on each new target gives curved swoops.
-    const a = agent.current;
-    if (a.focus !== L.focus) {
-      const to = targetOf(L.focus);
-      const dx = to.x - a.pos.x;
-      const dy = to.y - a.pos.y;
-      a.vel.x += -dy * 1.1;
-      a.vel.y += dx * 0.55;
-      a.focus = L.focus;
+    // Agents: slightly under-damped springs; a sideways kick on each new target gives curved swoops.
+    for (const ag of L.agents) {
+      let a = sims.current.get(ag.id);
+      if (!a) {
+        // Researchers launch from the subject in the middle.
+        a = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, trail: [], focus: null, alpha: 0, label: ag.label, lead: ag.lead, home: ag.home };
+        sims.current.set(ag.id, a);
+      }
+      a.label = ag.label;
+      a.home = ag.home;
+      if (a.focus !== ag.focus && ag.focus) {
+        const to = targetOf(ag.focus, a.home);
+        const dx = to.x - a.pos.x;
+        const dy = to.y - a.pos.y;
+        a.vel.x += -dy * 1.1;
+        a.vel.y += dx * 0.55;
+      }
+      if (ag.focus) a.focus = ag.focus;
+      const goal = targetOf(a.focus, a.home);
+      if (snap) {
+        a.pos = { ...goal };
+        a.vel = { x: 0, y: 0 };
+      } else {
+        const stiff = ag.lead ? 26 : 20;
+        const damp = 2 * Math.sqrt(stiff) * 0.72;
+        a.vel.x += ((goal.x - a.pos.x) * stiff - a.vel.x * damp) * dt;
+        a.vel.y += ((goal.y - a.pos.y) * stiff - a.vel.y * damp) * dt;
+        a.pos.x += a.vel.x * dt;
+        a.pos.y += a.vel.y * dt;
+      }
+      a.trail.push({ ...a.pos });
+      if (a.trail.length > (ag.lead ? 22 : 16)) a.trail.shift();
+      a.alpha += ((ag.focus ? 1 : 0) - a.alpha) * (1 - Math.exp(-dt * 4));
     }
-    const goal = targetOf(a.focus);
-    if (snap) {
-      a.pos = { ...goal };
-      a.vel = { x: 0, y: 0 };
-    } else {
-      const stiff = 26;
-      const damp = 2 * Math.sqrt(stiff) * 0.72;
-      a.vel.x += ((goal.x - a.pos.x) * stiff - a.vel.x * damp) * dt;
-      a.vel.y += ((goal.y - a.pos.y) * stiff - a.vel.y * damp) * dt;
-      a.pos.x += a.vel.x * dt;
-      a.pos.y += a.vel.y * dt;
-    }
-    a.trail.push({ ...a.pos });
-    if (a.trail.length > 22) a.trail.shift();
-    a.alpha += ((L.focus ? 1 : 0) - a.alpha) * (1 - Math.exp(-dt * 5));
 
     // Timers for caption typing, radar and the finale.
     if (captionStart.current.text !== L.caption) captionStart.current = { text: L.caption, at: now };
@@ -278,7 +355,7 @@ export function AgentBoard(props: Props) {
   const sweepAngle = (t / 2600) * Math.PI * 2;
   const sweepAlpha = sweeping ? clamp01((idleFor - 600) / 800) : 0;
   const finale = doneAt.current !== null ? (reduced.current ? 1 : easeOut(clamp01((t - doneAt.current) / 1400))) : 0;
-  const a = agent.current;
+  const comets = [...sims.current.entries()].filter(([, a]) => a.alpha > 0.02);
   const lastSearch = L.searches[L.searches.length - 1];
   const filedCount = L.comps.length;
 
@@ -341,12 +418,16 @@ export function AgentBoard(props: Props) {
           const p = posOf(s.id);
           const sc = pop(s.id);
           const right = p.x >= 0;
-          const active = L.focus === s.id;
+          const active = L.agents.some((g) => g.focus === s.id);
+          const v = s.verdict;
           return (
-            <g key={s.id} transform={`translate(${p.x} ${p.y}) scale(${sc})`} className={`src ${s.failed ? "failed" : ""} ${active ? "active" : ""} ${s.owner ? "owned" : ""}`}>
+            <g key={s.id} transform={`translate(${p.x} ${p.y}) scale(${sc})`} className={`src ${s.failed ? "failed" : ""} ${active ? "active" : ""} ${s.owner ? "owned" : ""} ${v ? `v-${v}` : ""}`}>
               {active && <circle r={13} className="src-halo" />}
+              {v === "checking" && <circle r={11} className="src-check" />}
               <rect x={-5.5} y={-5.5} width={11} height={11} transform="rotate(45)" />
               {s.failed && <path d="M-6 -6 L6 6 M6 -6 L-6 6" />}
+              {v === "supported" && <path d="M-3.2 0.2 L-0.8 2.6 L3.4 -2.4" className="tick" />}
+              {v === "unsupported" && <path d="M-3 -3 L3 3 M3 -3 L-3 3" className="cross" />}
               <text x={right ? 13 : -13} y={4.5} textAnchor={right ? "start" : "end"}>{clip(s.host, 22)}</text>
             </g>
           );
@@ -381,34 +462,43 @@ export function AgentBoard(props: Props) {
           )}
         </g>
 
-        {/* the agent: comet with a tail */}
-        {a.alpha > 0.02 && (
-          <g style={{ opacity: a.alpha }}>
+        {/* the agents: comets with tails (lead in orange, researchers in ink) */}
+        {comets.map(([id, a]) => (
+          <g key={id} style={{ opacity: a.alpha }} className={a.lead ? "comet lead" : "comet researcher"}>
             {a.trail.map((pt, i) => {
               if (i === 0) return null;
               const prev = a.trail[i - 1];
               const f = i / a.trail.length;
-              return <line key={i} x1={prev.x} y1={prev.y} x2={pt.x} y2={pt.y} className="trail" style={{ strokeWidth: 1 + f * 6, opacity: f * 0.55 }} />;
+              return <line key={i} x1={prev.x} y1={prev.y} x2={pt.x} y2={pt.y} className="trail" style={{ strokeWidth: 1 + f * (a.lead ? 6 : 4), opacity: f * 0.5 }} />;
             })}
             <g transform={`translate(${a.pos.x} ${a.pos.y})`}>
-              <circle r={15} className="agent-ring" />
-              <circle r={6} className="agent-dot" />
+              {a.lead && <circle r={15} className="agent-ring" />}
+              <circle r={a.lead ? 6 : 4.5} className="agent-dot" />
+              {a.label && (
+                <text x={9} y={-9} className="comet-label">
+                  {clip(a.label, 14)}
+                </text>
+              )}
             </g>
           </g>
-        )}
+        ))}
       </svg>
 
       {L.review && (
         <div key={L.review.uid} className={`stamp ${L.review.approved ? "ok" : "back"}`}>
           {L.review.approved ? "Approved" : "Sent back"}
-          <small>Reviewer · round {L.review.attempt}</small>
+          <small>
+            Reviewer · round {L.review.attempt}
+            {L.review.citations && L.review.citations.supported > 0 ? ` · ${L.review.citations.supported}/${L.review.citations.checked} verified` : ""}
+          </small>
         </div>
       )}
 
       <div className="board-legend">
         <span><i className="lg-src" /> Source</span>
         <span><i className="lg-comp" /> Competitor</span>
-        <span><i className="lg-agent" /> Agent</span>
+        <span><i className="lg-agent" /> Lead agent</span>
+        {(props.team?.length ?? 0) > 0 && <span><i className="lg-researcher" /> Researcher</span>}
       </div>
 
       <div className="board-caption">
@@ -421,6 +511,9 @@ export function AgentBoard(props: Props) {
           <span><b>{String(L.searches.length).padStart(2, "0")}</b> searches</span>
           <span><b>{String(L.sources.length).padStart(2, "0")}</b> sources</span>
           <span><b>{String(filedCount).padStart(2, "0")}</b> filed</span>
+          {L.verified && (
+            <span><b>{L.verified.supported}/{L.verified.checked}</b> verified</span>
+          )}
         </span>
       </div>
     </div>

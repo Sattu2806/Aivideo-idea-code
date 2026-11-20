@@ -44,6 +44,8 @@ export function Workspace({ agent }: { agent: Agent }) {
   const searches = activity.filter((a) => a.kind === "search").length;
   const reads = activity.filter((a) => a.kind === "fetch").length;
   const log = [...activity].reverse(); // oldest first, like a real log
+  const team = agent.team;
+  const who = (id: string) => (id === "lead" ? "Lead" : team.find((m) => m.id === id)?.name ?? id);
 
   return (
     <div className="ws">
@@ -86,6 +88,21 @@ export function Workspace({ agent }: { agent: Agent }) {
           </ol>
         )}
 
+        {team.length > 0 && (
+          <>
+            <div className="section-label team-label">Team</div>
+            <ul className="team">
+              <li className="lead"><span className="dot" /> Lead analyst <em>plans · writes · checks</em></li>
+              {team.map((m) => (
+                <li key={m.id} className={m.status}>
+                  <span className="dot" /> {m.name}
+                  <em>{m.status === "working" ? "researching…" : m.status === "done" ? "profile filed" : "couldn't finish"}</em>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
         <div className="file-actions">
           {running ? (
             <button className="link danger" onClick={agent.stop}>Stop the agent</button>
@@ -114,6 +131,7 @@ export function Workspace({ agent }: { agent: Agent }) {
             done={!!report}
             thinking={thinking}
             status={status}
+            team={team}
           />
         </section>
 
@@ -124,7 +142,7 @@ export function Workspace({ agent }: { agent: Agent }) {
           </div>
           <div className="log">
             {log.length === 0 && !running && <div className="log-line dim">Nothing was logged.</div>}
-            {log.map((a) => <LogLine key={a.uid} a={a} t0={t0} />)}
+            {log.map((a) => <LogLine key={a.uid} a={a} t0={t0} who={who} />)}
             {running && (
               <div className="log-line live" key="live">
                 <span className="t">{elapsed}</span>
@@ -152,7 +170,7 @@ export function Workspace({ agent }: { agent: Agent }) {
           )}
         </section>
 
-        {report && <ReportView report={report} competitors={competitors} target={target} />}
+        {report && <ReportView report={report} competitors={competitors} target={target} citations={agent.citations} />}
         {report && !running && (
           <section className="deeper">
             <div className="section-head">
@@ -197,15 +215,16 @@ export function Workspace({ agent }: { agent: Agent }) {
   );
 }
 
-function LogLine({ a, t0 }: { a: Activity; t0: number }) {
+function LogLine({ a, t0, who }: { a: Activity; t0: number; who: (agent: string) => string }) {
   const t = clock(a.at - t0);
+  const tag = <span className={`who ${a.agent === "lead" ? "lead" : ""}`}>{who(a.agent)}</span>;
   if (a.kind === "search") {
     return (
       <div className="log-line">
         <span className="t">{t}</span>
         <span className="k">SEARCH</span>
         <span className="v">
-          “{a.query}”
+          {tag}“{a.query}”
           {a.error ? <span className="err"> — failed ({a.error})</span> : a.results && <span className="dim"> — {a.results.length} results</span>}
         </span>
       </div>
@@ -217,6 +236,7 @@ function LogLine({ a, t0 }: { a: Activity; t0: number }) {
         <span className="t">{t}</span>
         <span className="k">READ</span>
         <span className="v">
+          {tag}
           {hostname(a.url)}
           {a.error ? <span className="err"> — couldn&apos;t open ({a.error})</span> : a.title && <span className="dim"> — {a.title}</span>}
           {!a.done && !a.error && <span className="dim"> …</span>}
@@ -229,7 +249,20 @@ function LogLine({ a, t0 }: { a: Activity; t0: number }) {
       <div className="log-line">
         <span className="t">{t}</span>
         <span className="k">FILED</span>
-        <span className="v">Profile: <strong>{a.name}</strong></span>
+        <span className="v">{tag}Profile: <strong>{a.name}</strong></span>
+      </div>
+    );
+  }
+  if (a.kind === "cite") {
+    const label = a.verdict === "supported" ? "✓ supported" : a.verdict === "unsupported" ? "✗ not supported" : a.verdict === "unreachable" ? "couldn't open" : "checking…";
+    return (
+      <div className={`log-line cite ${a.verdict ?? "pending"}`}>
+        <span className="t">{t}</span>
+        <span className="k">VERIFY</span>
+        <span className="v">
+          {hostname(a.url)} <span className="verdict">{label}</span>
+          <span className="issue">“{a.claim.slice(0, 140)}”{a.note && a.verdict === "unsupported" ? ` — ${a.note}` : ""}</span>
+        </span>
       </div>
     );
   }
@@ -239,6 +272,9 @@ function LogLine({ a, t0 }: { a: Activity; t0: number }) {
       <span className="k">REVIEW</span>
       <span className="v">
         {a.approved ? "Approved." : `Sent back (round ${a.attempt}):`}
+        {a.citations && (
+          <span className="dim"> {a.citations.supported}/{a.citations.checked} citations verified</span>
+        )}
         {a.issues.map((x, i) => <span key={i} className="issue">— {x}</span>)}
       </span>
     </div>

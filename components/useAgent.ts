@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentEvent, Competitor, Mode, PlanStep, ProviderInfo, Report, RunRequest } from "@/lib/events";
+import type { AgentEvent, CitationStats, CiteVerdict, Competitor, Mode, PlanStep, ProviderInfo, Report, RunRequest, TeamMember } from "@/lib/events";
 
-export type Activity = { uid: number } & (
+/** `agent` is "lead" or a researcher id ("r1", …). */
+export type Activity = { uid: number; agent: string } & (
   | { kind: "search"; id: string; query: string; at: number; results?: { title: string; url: string }[]; error?: string }
   | { kind: "fetch"; id: string; url: string; at: number; title?: string; error?: string; done?: boolean }
-  | { kind: "review"; approved: boolean; issues: string[]; attempt: number; at: number }
-  | { kind: "competitor"; name: string; at: number });
+  | { kind: "review"; approved: boolean; issues: string[]; attempt: number; at: number; citations?: CitationStats }
+  | { kind: "competitor"; name: string; at: number }
+  | { kind: "cite"; id: string; url: string; claim: string; at: number; verdict?: CiteVerdict; note?: string });
 
 export type Usage = Extract<AgentEvent, { type: "usage" }>;
 export type Phase = "idle" | "running" | "done" | "error";
@@ -19,6 +21,7 @@ export interface SavedFile {
   date: number;
   report: Report;
   competitors: Competitor[];
+  citations?: CitationStats;
 }
 
 const ACCESS_KEY = "intel-access-code";
@@ -59,6 +62,8 @@ export function useAgent() {
   const [searchBackend, setSearchBackend] = useState<string | null>(null);
   const [history, setHistory] = useState<SavedFile[]>([]);
   const [isFollowUp, setIsFollowUp] = useState(false);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [citations, setCitations] = useState<CitationStats | null>(null);
 
   // Access code
   const [accessRequired, setAccessRequired] = useState(false);
@@ -68,8 +73,8 @@ export function useAgent() {
   const abortRef = useRef<AbortController | null>(null);
   const uidRef = useRef(0);
   // Latest values for saving to history when a report arrives.
-  const live = useRef({ target, mode, competitors });
-  live.current = { target, mode, competitors };
+  const live = useRef({ target, mode, competitors, citations });
+  live.current = { target, mode, competitors, citations };
 
   useEffect(() => {
     setAccessCode(localStorage.getItem(ACCESS_KEY));
@@ -85,8 +90,8 @@ export function useAgent() {
   }, []);
 
   const saveToHistory = useCallback((rep: Report, comps: Competitor[]) => {
-    const { target: t, mode: m } = live.current;
-    const entry: SavedFile = { id: `${Date.now()}`, target: t, mode: m, date: Date.now(), report: rep, competitors: comps };
+    const { target: t, mode: m, citations: cs } = live.current;
+    const entry: SavedFile = { id: `${Date.now()}`, target: t, mode: m, date: Date.now(), report: rep, competitors: comps, citations: cs ?? undefined };
     const next = [entry, ...loadHistory().filter((h) => !(h.target === t && h.mode === m))].slice(0, MAX_HISTORY);
     try {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
@@ -121,14 +126,14 @@ export function useAgent() {
           break;
         case "search":
           setThinking("");
-          setActivity((a) => [{ uid, kind: "search", id: event.id, query: event.query, at }, ...a]);
+          setActivity((a) => [{ uid, agent: event.agent ?? "lead", kind: "search", id: event.id, query: event.query, at }, ...a]);
           break;
         case "search_results":
           setActivity((a) => a.map((x) => (x.kind === "search" && x.id === event.id ? { ...x, results: event.results, error: event.error } : x)));
           break;
         case "fetch":
           setThinking("");
-          setActivity((a) => [{ uid, kind: "fetch", id: event.id, url: event.url, at }, ...a]);
+          setActivity((a) => [{ uid, agent: event.agent ?? "lead", kind: "fetch", id: event.id, url: event.url, at }, ...a]);
           break;
         case "fetch_result":
           setActivity((a) =>
@@ -146,11 +151,30 @@ export function useAgent() {
             live.current.competitors = next;
             return next;
           });
-          setActivity((a) => [{ uid, kind: "competitor", name: c.name, at }, ...a]);
+          setActivity((a) => [{ uid, agent: event.agent ?? "lead", kind: "competitor", name: c.name, at }, ...a]);
           break;
         }
         case "review":
-          setActivity((a) => [{ uid, kind: "review", approved: event.approved, issues: event.issues, attempt: event.attempt, at }, ...a]);
+          setActivity((a) => [
+            { uid, agent: "lead", kind: "review", approved: event.approved, issues: event.issues, attempt: event.attempt, at, citations: event.citations },
+            ...a,
+          ]);
+          if (event.citations) {
+            setCitations(event.citations);
+            live.current.citations = event.citations;
+          }
+          break;
+        case "team":
+          setTeam(event.members);
+          break;
+        case "member":
+          setTeam((t) => t.map((m) => (m.id === event.id ? { ...m, status: event.status } : m)));
+          break;
+        case "cite":
+          setActivity((a) => [{ uid, agent: "lead", kind: "cite", id: event.id, url: event.url, claim: event.claim, at }, ...a]);
+          break;
+        case "cite_result":
+          setActivity((a) => a.map((x) => (x.kind === "cite" && x.id === event.id ? { ...x, verdict: event.verdict, note: event.note } : x)));
           break;
         case "report":
           setReport(event.report);
@@ -194,6 +218,8 @@ export function useAgent() {
       }
       setUsage(null);
       setError("");
+      setTeam([]);
+      setCitations(null);
       setStartedAt(Date.now());
       setFinishedAt(null);
 
@@ -292,6 +318,8 @@ export function useAgent() {
     setActivity([]);
     setCompetitors(f.competitors);
     setReport(f.report);
+    setTeam([]);
+    setCitations(f.citations ?? null);
     setUsage(null);
     setError("");
     setStartedAt(null);
@@ -320,7 +348,7 @@ export function useAgent() {
 
   return {
     phase, target, mode, status, plan, activity, thinking, competitors, report, usage, error, startedAt, finishedAt,
-    provider, searchBackend, history, isFollowUp,
+    provider, searchBackend, history, isFollowUp, team, citations,
     accessRequired, needsCode, setNeedsCode, submitCode, run, followUp, openSaved, removeSaved, stop, reset,
   };
 }

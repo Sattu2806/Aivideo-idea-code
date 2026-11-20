@@ -37,6 +37,24 @@ export interface ProviderInfo {
   free: boolean;
 }
 
+export interface TeamMember {
+  /** "r1", "r2", … */
+  id: string;
+  /** The company this researcher is assigned to. */
+  name: string;
+  status: "working" | "done" | "failed";
+}
+
+export type CiteVerdict = "supported" | "unsupported" | "unreachable";
+
+export interface CitationStats {
+  checked: number;
+  supported: number;
+  unsupported: number;
+  unreachable: number;
+}
+
+// `agent` is "lead" or a researcher id; omitted means "lead".
 export type AgentEvent =
   | { type: "meta"; provider: ProviderInfo; search: string }
   | { type: "status"; message: string }
@@ -44,12 +62,16 @@ export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "plan"; steps: PlanStep[] }
   | { type: "step"; index: number; status: StepStatus; note?: string }
-  | { type: "search"; id: string; query: string }
+  | { type: "search"; id: string; query: string; agent?: string }
   | { type: "search_results"; id: string; results: { title: string; url: string }[]; error?: string }
-  | { type: "fetch"; id: string; url: string }
+  | { type: "fetch"; id: string; url: string; agent?: string }
   | { type: "fetch_result"; id: string; url: string; title?: string; error?: string }
-  | { type: "competitor"; competitor: Competitor }
-  | { type: "review"; approved: boolean; issues: string[]; attempt: number }
+  | { type: "competitor"; competitor: Competitor; agent?: string }
+  | { type: "team"; members: TeamMember[] }
+  | { type: "member"; id: string; status: TeamMember["status"] }
+  | { type: "cite"; id: string; url: string; claim: string }
+  | { type: "cite_result"; id: string; verdict: CiteVerdict; note?: string }
+  | { type: "review"; approved: boolean; issues: string[]; attempt: number; citations?: CitationStats }
   | { type: "report"; report: Report }
   | {
       type: "usage";

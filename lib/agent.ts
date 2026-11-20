@@ -1,10 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicFoundry } from "@anthropic-ai/foundry-sdk";
 import type { AgentEvent, ProviderInfo, RunRequest } from "./events";
-import { azureDeployment, azureOpenAIAdapter } from "./providers/azure-openai";
-import { runClaude } from "./providers/claude";
-import { geminiAdapter, geminiModel } from "./providers/gemini";
-import { runGeneric } from "./providers/generic";
+import { azureDeployment, azureOpenAIKit } from "./providers/azure-openai";
+import { makeClaudeProvider } from "./providers/claude";
+import { geminiKit, geminiModel } from "./providers/gemini";
+import { makeGenericProvider } from "./providers/generic";
+import type { Provider } from "./providers/types";
+import { runTeam } from "./team";
 import { searchBackend } from "./web";
 
 // ---------------------------------------------------------------------------
@@ -49,23 +51,27 @@ export function webToolsLabel(p: ProviderInfo) {
   return p.id === "anthropic" || p.id === "foundry" ? "built-in" : searchBackend();
 }
 
+function buildProvider(info: ProviderInfo): Provider {
+  switch (info.id) {
+    case "anthropic":
+      return makeClaudeProvider({ client: new Anthropic(), info, platform: "anthropic", price: CLAUDE_PRICE });
+    case "foundry":
+      return makeClaudeProvider({ client: new AnthropicFoundry(), info, platform: "foundry", price: CLAUDE_PRICE });
+    case "gemini":
+      return makeGenericProvider(info, webToolsLabel(info), geminiKit());
+    case "azure-openai":
+      return makeGenericProvider(info, webToolsLabel(info), azureOpenAIKit());
+  }
+}
+
 export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, signal: AbortSignal) {
-  const provider = activeProvider();
-  if (!provider) {
+  const info = activeProvider();
+  if (!info) {
     throw new Error(
       "No AI provider is configured. Add GEMINI_API_KEY (free at aistudio.google.com), ANTHROPIC_API_KEY, Azure OpenAI or Claude on Azure settings to .env.local.",
     );
   }
-  emit({ type: "meta", provider, search: webToolsLabel(provider) });
-
-  switch (provider.id) {
-    case "anthropic":
-      return runClaude({ client: new Anthropic(), model: provider.model, platform: "anthropic", price: CLAUDE_PRICE }, req, emit, signal);
-    case "foundry":
-      return runClaude({ client: new AnthropicFoundry(), model: provider.model, platform: "foundry", price: CLAUDE_PRICE }, req, emit, signal);
-    case "gemini":
-      return runGeneric(geminiAdapter, req, emit, signal);
-    case "azure-openai":
-      return runGeneric(azureOpenAIAdapter, req, emit, signal);
-  }
+  const provider = buildProvider(info);
+  emit({ type: "meta", provider: info, search: provider.webLabel });
+  await runTeam(provider, req, emit, signal);
 }

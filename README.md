@@ -1,6 +1,6 @@
 # Competitor Intel Agent
 
-An agentic AI app: name a company and the agent **plans its own research, searches the web, reads competitor websites, pricing pages and reviews, records each competitor, and writes a report**. A second AI reviews that report and sends it back if it falls short, and the agent keeps working until it passes. A live board animates every step.
+An agentic AI app: name a company and **a team of AI agents researches its competitors**. A lead agent plans the work and finds the competitors, then sends one researcher agent per competitor to work in parallel. The lead writes the report, every citation is checked by opening the source, and a reviewer sends the report back until it passes. A live board animates every step.
 
 Built with Next.js. Runs on **Gemini (free API key)**, **Claude**, **Claude on Azure (Microsoft Foundry)** or **Azure OpenAI**.
 
@@ -11,39 +11,44 @@ Built with Next.js. Runs on **Gemini (free API key)**, **Claude**, **Claude on A
   - **Battle cards:** for sales teams. For each rival: when you win, when you lose, landmine questions and objection handling.
   - **Market map:** give it a category ("CRM for dentists") and it maps every serious player by segment and finds the white space.
 - **Dig deeper:** after a report, ask a follow-up ("add Monday.com", "double-check every price"). The agent continues from the existing report, researches only what's needed, and files an updated version.
+- **A team of agents:** the lead assigns one researcher per competitor; they run at the same time (two at a time on Gemini's free tier) and each returns a cited profile.
+- **Citation checker:** before review, every link in the report is opened and the model checks whether the page really supports the claim next to it, for example the exact price. Wrong citations are sent back to be fixed. Sites that block automated reading are marked "couldn't open" and don't block the report.
 - **Self-review:** an independent reviewer model checks each report against a checklist and sends it back with specific fixes.
 - **Your files:** finished reports are saved in your browser and listed on the home page.
 - **Export:** PDF (branded print layout), Markdown, or copy.
-- **Live board:** an animated map of what the agent is doing: searches ripple out, each page it reads is pinned to the board, competitors are linked to their sources, and the reviewer stamps the result. The landing page plays a demo of it.
+- **Live board:** an animated map of the team at work: the lead (orange comet) and each researcher (labelled ink comets) fly to the pages they read, sources cluster around the competitor they belong to, cited sources turn green ✓ or orange ✗ as they're checked, and the reviewer stamps the result. The landing page plays a demo of it.
 
-## How the agent works
+## How the agents work
 
 ```
 User: "linear.app"
    │
    ▼
-┌──────────────────────────── agent loop ─────────────────────────────┐
-│  The model decides the next action and calls a tool:                 │
-│    plan_research      → writes its own plan (live checklist)         │
-│    web_search         → searches the web                             │
-│    web_fetch          → reads a page                                 │
-│    update_step        → ticks off plan steps                         │
-│    record_competitor  → saves a structured competitor profile       │
-│    submit_report      → hands in the report ──► reviewer grades it   │
-│                                      ├─ rejected → fixes go back     │
-│                                      └─ approved → report delivered  │
-│  Tool results go back to the model; repeat until approved.           │
-└──────────────────────────────────────────────────────────────────────┘
-   │  every step streams to the browser as it happens (NDJSON)
+LEAD AGENT ─ plan_research → web_search → finds 3-5 competitors
+   │
+   ├─ assign_researchers ───────────────┬───────────────────┐
+   ▼                                    ▼                   ▼
+RESEARCHER: Jira            RESEARCHER: ClickUp   RESEARCHER: Shortcut    (in parallel)
+  reads site, pricing, reviews → record_competitor → finish_research
+   │                                    │                   │
+   └───────────── profiles return to the lead ──────────────┘
    ▼
-UI: live board · plan · log · competitor ledger · report
+LEAD writes the report → submit_report
+   │
+   ├─ CITATION CHECK: open every cited link, does the page support the claim?
+   ├─ REVIEWER: checklist for the chosen mode
+   │     ├─ issues → back to the lead, who fixes them and resubmits
+   │     └─ approved → report delivered
+   ▼
+Every step streams to the browser as it happens (NDJSON)
 ```
 
-What makes it an *agent* rather than a chatbot:
-- **It plans.** It writes its own step-by-step plan and updates it as it goes.
-- **It uses tools.** It decides what to search and which pages to read.
+What makes it *agentic* rather than a chatbot:
+- **It plans.** The lead writes its own step-by-step plan and updates it as it goes.
+- **It delegates.** The lead decides which companies matter and hands each to its own researcher agent.
+- **It uses tools.** Each agent decides what to search and which pages to read.
 - **It loops.** Each tool result feeds into the next decision, for as many steps as the job needs.
-- **It corrects itself.** A separate reviewer model checks the work, and the agent fixes what's flagged.
+- **It corrects itself.** Citations are checked against their sources, a reviewer checks the whole report, and the lead fixes what's flagged.
 
 ## Run it locally
 
@@ -96,7 +101,7 @@ Every run spends API credits or free-tier quota, so set these before you share a
 ## Cost
 
 - **Gemini free tier:** $0, within Google's free limits.
-- **Claude:** my rough estimate is **$1–3 per run**, not yet measured on a real run. The UI shows a live estimate. Set `AGENT_EFFORT=low` to make it cheaper, `high` for more thorough research.
+- **Claude:** my rough estimate is **$1–3 per run**, not yet measured on a real run. Researchers run at low effort to keep this down. The UI shows a live estimate. Set `AGENT_EFFORT=low` to make it cheaper, `high` for more thorough research.
 - **Azure:** depends on your deployment's pricing, so the UI shows token counts but no dollar figure.
 
 ## Files
@@ -104,13 +109,16 @@ Every run spends API credits or free-tier quota, so set these before you share a
 | File | What it does |
 |---|---|
 | `lib/agent.ts` | Picks the provider from your settings and starts the run |
+| `lib/team.ts` | The team: lead agent, parallel researchers, citation check and review |
+| `lib/citations.ts` | Citation checker: finds each linked claim, opens the page, asks the model to judge |
+| `lib/providers/types.ts` | The interface every provider implements (run a loop, make a JSON call) |
 | `lib/providers/claude.ts` | Agent loop for Claude (Claude API and Azure Foundry), with built-in web tools |
 | `lib/providers/generic.ts` | Agent loop for Gemini and Azure OpenAI, running web tools in this server |
 | `lib/providers/gemini.ts` | Gemini adapter (function calling, thought summaries, rate-limit retry) |
 | `lib/providers/azure-openai.ts` | Azure OpenAI adapter (Chat Completions with function tools) |
 | `lib/web.ts` | Web search backends and the safe page reader |
-| `lib/tools.ts` | Tool definitions and the plan / competitor / review logic shared by all providers |
-| `lib/prompts.ts` | System prompts for each research mode, the reviewer, and follow-ups |
+| `lib/tools.ts` | Tool definitions and input validation shared by all providers |
+| `lib/prompts.ts` | Prompts for the lead, researchers, citation checker, reviewer and follow-ups |
 | `lib/events.ts` | Event types streamed from the server to the UI |
 | `lib/access.ts` | Access code check and per-IP run limit |
 | `app/api/research/route.ts` | Runs the agent and streams its events |
@@ -127,4 +135,5 @@ Every run spends API credits or free-tier quota, so set these before you share a
 
 - Run it every week and email you what changed in competitor pricing.
 - Export straight to Google Docs or Notion.
-- Split the work across several sub-agents researching competitors in parallel.
+- Watch mode: re-run weekly and highlight what changed (prices, features, positioning).
+- White-label PDFs with a client's logo and colours.

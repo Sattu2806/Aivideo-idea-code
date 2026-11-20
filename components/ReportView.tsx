@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Competitor, Report } from "@/lib/events";
+import type { CitationStats, Competitor, Report } from "@/lib/events";
 
 function slug(s: string) {
   return s.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "report";
@@ -16,7 +16,7 @@ function toMarkdown(report: Report) {
 
 const mdLinks = { a: (props: React.ComponentProps<"a">) => <a {...props} target="_blank" rel="noreferrer" /> };
 
-export function ReportView({ report, competitors, target }: { report: Report; competitors: Competitor[]; target: string }) {
+export function ReportView({ report, competitors, target, citations }: { report: Report; competitors: Competitor[]; target: string; citations?: CitationStats | null }) {
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -63,6 +63,7 @@ export function ReportView({ report, competitors, target }: { report: Report; co
           <span>{date}</span>
         </div>
         <h1 className="doc-title">{report.title}</h1>
+        {citations && citations.checked > 0 && <CitationBadge c={citations} />}
         <p className="doc-summary">{report.executive_summary}</p>
         <div className="markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>{report.report_markdown}</ReactMarkdown>
@@ -71,6 +72,25 @@ export function ReportView({ report, competitors, target }: { report: Report; co
 
       {mounted && createPortal(<PrintDocument report={report} competitors={competitors} target={target} date={date} />, document.body)}
     </section>
+  );
+}
+
+function CitationBadge({ c }: { c: CitationStats }) {
+  const n = c.checked;
+  if (c.supported === 0 && c.unsupported === 0) {
+    return (
+      <div className="verified none mono">
+        Citations not auto-checked — the cited sites block automated reading. Verify key figures yourself.
+      </div>
+    );
+  }
+  return (
+    <div className={`verified mono ${c.unsupported > 0 ? "warn" : ""}`}>
+      <span className="seal">{c.unsupported > 0 ? "!" : "✓"}</span>
+      {c.supported === n ? `All ${n} citations verified by opening the source` : `${c.supported} of ${n} citations verified by opening the source`}
+      {c.unsupported > 0 && <span> · {c.unsupported} didn&apos;t match their source</span>}
+      {c.unreachable > 0 && <span className="dim"> · {c.unreachable} couldn&apos;t be opened</span>}
+    </div>
   );
 }
 
