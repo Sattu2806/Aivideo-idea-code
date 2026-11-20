@@ -20,11 +20,26 @@ export default function Home() {
           <span className={`lamp ${lamp}`} />
           <span className="meta-text">
             {agent.phase === "running" ? "Agent working" : agent.phase === "done" ? "Report filed" : "Autonomous research agent"}
+            {agent.provider && <span className="dim"> · {agent.provider.label}</span>}
           </span>
         </div>
       </header>
 
-      <main>{inRun ? <Workspace agent={agent} /> : <Landing onRun={agent.run} locked={agent.accessRequired} />}</main>
+      <main>
+        {inRun ? (
+          <Workspace agent={agent} />
+        ) : (
+          <Landing
+            onRun={agent.run}
+            locked={agent.accessRequired}
+            provider={agent.provider}
+            searchBackend={agent.searchBackend}
+            history={agent.history}
+            onOpen={agent.openSaved}
+            onRemove={agent.removeSaved}
+          />
+        )}
+      </main>
 
       <footer className="footer">
         <span>Intel/01 — competitor research, done by an agent.</span>

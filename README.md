@@ -1,8 +1,20 @@
 # Competitor Intel Agent
 
-An agentic AI app: type a company name and the agent **plans its own research, searches the web, reads competitor websites, pricing pages and reviews, records each competitor, and writes a report**. A second AI reviews that report and sends it back if it falls short, and the agent keeps working until it passes.
+An agentic AI app: name a company and the agent **plans its own research, searches the web, reads competitor websites, pricing pages and reviews, records each competitor, and writes a report**. A second AI reviews that report and sends it back if it falls short, and the agent keeps working until it passes. A live board animates every step.
 
-Built with Next.js and the Claude API (`claude-opus-5-5`).
+Built with Next.js. Runs on **Gemini (free API key)**, **Claude**, **Claude on Azure (Microsoft Foundry)** or **Azure OpenAI**.
+
+## What it can do
+
+- **Three research modes**
+  - **Competitors:** the 3–5 direct rivals, a comparison table, market gaps and recommended actions.
+  - **Battle cards:** for sales teams. For each rival: when you win, when you lose, landmine questions and objection handling.
+  - **Market map:** give it a category ("CRM for dentists") and it maps every serious player by segment and finds the white space.
+- **Dig deeper:** after a report, ask a follow-up ("add Monday.com", "double-check every price"). The agent continues from the existing report, researches only what's needed, and files an updated version.
+- **Self-review:** an independent reviewer model checks each report against a checklist and sends it back with specific fixes.
+- **Your files:** finished reports are saved in your browser and listed on the home page.
+- **Export:** PDF (branded print layout), Markdown, or copy.
+- **Live board:** an animated map of what the agent is doing: searches ripple out, each page it reads is pinned to the board, competitors are linked to their sources, and the reviewer stamps the result. The landing page plays a demo of it.
 
 ## How the agent works
 
@@ -10,22 +22,21 @@ Built with Next.js and the Claude API (`claude-opus-5-5`).
 User: "linear.app"
    │
    ▼
-┌─────────────────────────── agent loop (lib/agent.ts) ───────────────────────────┐
-│  Claude decides the next action and calls a tool:                                 │
-│    plan_research      → writes its own plan (shown as a live checklist)           │
-│    web_search         → searches the web          (runs on Anthropic's servers)   │
-│    web_fetch          → reads a page              (runs on Anthropic's servers)   │
-│    update_step        → ticks off plan steps                                      │
-│    record_competitor  → saves a structured competitor card                       │
-│    submit_report      → hands in the report ──► Reviewer AI grades it            │
-│                                                  ├─ rejected → issues go back    │
-│                                                  │   to the agent, loop continues│
-│                                                  └─ approved → report delivered  │
-│  Tool results go back to Claude; repeat until the report is approved.            │
-└──────────────────────────────────────────────────────────────────────────────────┘
-   │  every step is streamed to the browser as it happens (NDJSON)
+┌──────────────────────────── agent loop ─────────────────────────────┐
+│  The model decides the next action and calls a tool:                 │
+│    plan_research      → writes its own plan (live checklist)         │
+│    web_search         → searches the web                             │
+│    web_fetch          → reads a page                                 │
+│    update_step        → ticks off plan steps                         │
+│    record_competitor  → saves a structured competitor profile       │
+│    submit_report      → hands in the report ──► reviewer grades it   │
+│                                      ├─ rejected → fixes go back     │
+│                                      └─ approved → report delivered  │
+│  Tool results go back to the model; repeat until approved.           │
+└──────────────────────────────────────────────────────────────────────┘
+   │  every step streams to the browser as it happens (NDJSON)
    ▼
-UI: plan checklist · live search/read feed · competitor cards · final report
+UI: live board · plan · log · competitor ledger · report
 ```
 
 What makes it an *agent* rather than a chatbot:
@@ -36,63 +47,84 @@ What makes it an *agent* rather than a chatbot:
 
 ## Run it locally
 
-You need Node.js 20+ and an Anthropic API key ([get one here](https://platform.claude.com/settings/keys)).
+You need Node.js 20+ and a key for **one** provider.
 
 ```bash
 npm install
-cp .env.example .env.local      # then paste your key into .env.local
+cp .env.example .env.local      # fill in ONE provider section
 npm run dev
 ```
 
-Open http://localhost:3000 and enter a company, for example `linear.app`, `notion.so` or a local business.
+Open http://localhost:3000. The home page shows which model it will use ("Runs on Gemini · gemini-2.5-flash").
+
+## Choosing a provider
+
+| Provider | What to set in `.env.local` | Web search & reading | Cost |
+|---|---|---|---|
+| **Gemini** | `GEMINI_API_KEY` ([free key](https://aistudio.google.com/apikey)) | Done by the app (see below) | Free tier, with rate limits |
+| **Claude** | `ANTHROPIC_API_KEY` | Built into Claude | Paid; live estimate shown |
+| **Claude on Azure** | `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_RESOURCE`, `FOUNDRY_MODEL` (deployment name) | Built into Claude (basic versions on Azure) | Billed by Azure |
+| **Azure OpenAI** | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT` | Done by the app (see below) | Billed by Azure |
+
+If more than one is configured, set `AI_PROVIDER` to choose. Otherwise the first one found wins, in the order above from Claude down.
+
+**Web tools for Gemini and Azure OpenAI.** These models don't browse on their own here, so the app gives them two tools it runs itself:
+- **Search:** Tavily if `TAVILY_API_KEY` is set (free tier: 1,000 searches a month), otherwise Gemini's Google Search if `GEMINI_API_KEY` is set, otherwise DuckDuckGo (no key, but it can rate-limit).
+- **Page reading:** the server downloads the page and extracts the text. It only reads public `http`/`https` sites and refuses private or internal network addresses.
+
+**Gemini free tier notes.** Free keys allow only a few requests per minute. When the limit is hit, the agent waits and retries automatically (the status line says so), so runs take longer than on paid models.
+
+**Claude on Azure note.** The Claude API version retries a declined request on a fallback model automatically; that server-side option isn't available on Azure Foundry, so there a declined request just stops with a message.
 
 ## Deploy to Vercel
 
 1. Push this repo to GitHub and import it in Vercel.
-2. Add the `ANTHROPIC_API_KEY` environment variable.
+2. Add your provider's environment variables (and `ACCESS_CODE`, below).
 3. Deploy.
 
 A run takes a few minutes. The API route asks for up to 800 seconds (`maxDuration`); how much of that you actually get depends on your Vercel plan.
 
 ## Lock it before you share it
 
-Every run spends your API credits, so set these in Vercel (or `.env.local`) before you share a link:
+Every run spends API credits or free-tier quota, so set these before you share a link:
 
 | Variable | What it does |
 |---|---|
 | `ACCESS_CODE` | Visitors must enter this code to run the agent. Leave empty for open access (only on your own machine). |
-| `MAX_RUNS_PER_HOUR` | Runs allowed per IP address per hour. Default 5; `0` means no limit. It's kept in server memory, so on serverless hosts it's best effort. Use Upstash Redis or Vercel KV if you need a strict limit. |
-
-## Exporting reports
-
-- **Export PDF:** opens your browser's save dialog with a branded print layout: cover, executive summary, competitor table and the full report. Choose "Save as PDF". The text stays selectable and the links stay clickable.
-- **Markdown** and **Copy:** for pasting into Notion, Google Docs or an email.
+| `MAX_RUNS_PER_HOUR` | Runs allowed per IP address per hour. Default 5; `0` means no limit. Kept in server memory, so on serverless hosts it's best effort; use Upstash Redis or Vercel KV for a strict limit. |
 
 ## Cost
 
-My rough estimate is **$1–3 per run**, depending on how much the agent reads. This hasn't been measured on a real run yet. The UI shows a live cost estimate while it runs.
-To make it cheaper, set `AGENT_EFFORT=low` in `.env.local`; for more thorough research, use `high`.
+- **Gemini free tier:** $0, within Google's free limits.
+- **Claude:** my rough estimate is **$1–3 per run**, not yet measured on a real run. The UI shows a live estimate. Set `AGENT_EFFORT=low` to make it cheaper, `high` for more thorough research.
+- **Azure:** depends on your deployment's pricing, so the UI shows token counts but no dollar figure.
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `lib/agent.ts` | The agent: system prompt, tools, the loop, and the reviewer |
+| `lib/agent.ts` | Picks the provider from your settings and starts the run |
+| `lib/providers/claude.ts` | Agent loop for Claude (Claude API and Azure Foundry), with built-in web tools |
+| `lib/providers/generic.ts` | Agent loop for Gemini and Azure OpenAI, running web tools in this server |
+| `lib/providers/gemini.ts` | Gemini adapter (function calling, thought summaries, rate-limit retry) |
+| `lib/providers/azure-openai.ts` | Azure OpenAI adapter (Chat Completions with function tools) |
+| `lib/web.ts` | Web search backends and the safe page reader |
+| `lib/tools.ts` | Tool definitions and the plan / competitor / review logic shared by all providers |
+| `lib/prompts.ts` | System prompts for each research mode, the reviewer, and follow-ups |
 | `lib/events.ts` | Event types streamed from the server to the UI |
-| `app/api/research/route.ts` | API route that runs the agent and streams its events |
-| `app/api/access/route.ts` | Checks the access code |
 | `lib/access.ts` | Access code check and per-IP run limit |
-| `app/page.tsx` | Page shell: switches between the landing page and the workspace |
-| `components/Landing.tsx` | Landing page with the request form |
-| `components/Workspace.tsx` | Live run view: plan, timestamped log, competitor ledger |
-| `components/AgentBoard.tsx` | Animated live board: sources, competitors and the agent moving between them |
-| `components/ReportView.tsx` | Report view plus the PDF / Markdown export |
-| `components/useAgent.ts` | Client state: streams events from the API |
+| `app/api/research/route.ts` | Runs the agent and streams its events |
+| `app/api/access/route.ts` | Access code check; tells the UI which provider is active |
+| `components/Landing.tsx` | Home page: modes, request form, demo board, your files |
+| `components/DemoBoard.tsx` | Scripted, looping demo of the live board for the home page |
+| `components/AgentBoard.tsx` | The animated live board |
+| `components/Workspace.tsx` | Run view: plan, board, log, competitor ledger, dig deeper |
+| `components/ReportView.tsx` | Report view plus PDF / Markdown export |
+| `components/useAgent.ts` | Client state: streams events, follow-ups, saved files |
 | `app/globals.css` | Design (paper, ink, one accent colour) and the print (PDF) layout |
 
-## Ideas to extend it (and for follow-up videos)
+## Ideas for follow-up videos
 
-- Export straight to Google Docs.
 - Run it every week and email you what changed in competitor pricing.
-- Add a "battle card" mode for sales teams: how to win against each competitor.
-- Let it research a whole market from a single keyword ("CRM for dentists").
+- Export straight to Google Docs or Notion.
+- Split the work across several sub-agents researching competitors in parallel.

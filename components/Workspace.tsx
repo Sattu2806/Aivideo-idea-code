@@ -4,7 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { Competitor } from "@/lib/events";
 import { AgentBoard } from "./AgentBoard";
 import { ReportView } from "./ReportView";
-import { estimateCost, type Activity, type useAgent } from "./useAgent";
+import { formatCost, MODE_LABEL, type Activity, type useAgent } from "./useAgent";
 
 type Agent = ReturnType<typeof useAgent>;
 
@@ -15,6 +15,8 @@ export function hostname(url: string) {
     return url;
   }
 }
+
+const running_ = (phase: string) => phase === "running";
 
 function clock(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -32,7 +34,9 @@ function useNow(active: boolean) {
 }
 
 export function Workspace({ agent }: { agent: Agent }) {
-  const { phase, target, status, plan, activity, thinking, competitors, report, usage, error, startedAt, finishedAt } = agent;
+  const { phase, target, mode, status, plan, activity, thinking, competitors, report, usage, error, startedAt, finishedAt, provider, isFollowUp } = agent;
+  const [question, setQuestion] = useState("");
+  const fromFiles = !running_(phase) && activity.length === 0 && plan.length === 0 && !!report;
   const running = phase === "running";
   const now = useNow(running);
   const t0 = startedAt ?? now;
@@ -45,19 +49,29 @@ export function Workspace({ agent }: { agent: Agent }) {
     <div className="ws">
       {/* ------------ Left: the file ------------ */}
       <aside className="file">
-        <div className="kicker">{running ? "Subject under research" : report ? "Report filed" : "Run ended"}</div>
+        <div className="kicker">
+          {running ? (isFollowUp ? "Digging deeper" : "Under research") : fromFiles ? "From your files" : report ? "Report filed" : "Run ended"} ·{" "}
+          {MODE_LABEL[mode]}
+        </div>
         <h1 className="subject">{target}</h1>
 
-        <dl className="meta">
-          <div><dt>Elapsed</dt><dd>{elapsed}</dd></div>
-          <div><dt>Searches</dt><dd>{searches}</dd></div>
-          <div><dt>Pages read</dt><dd>{reads}</dd></div>
-          <div><dt>Est. cost</dt><dd>${usage ? estimateCost(usage).toFixed(2) : "0.00"}</dd></div>
-        </dl>
+        {fromFiles ? (
+          <dl className="meta">
+            <div><dt>Companies</dt><dd>{competitors.length}</dd></div>
+          </dl>
+        ) : (
+          <dl className="meta">
+            <div><dt>Elapsed</dt><dd>{elapsed}</dd></div>
+            <div><dt>Searches</dt><dd>{searches}</dd></div>
+            <div><dt>Pages read</dt><dd>{reads}</dd></div>
+            <div><dt>Est. cost</dt><dd>{formatCost(usage, provider)}</dd></div>
+            {provider && <div><dt>Model</dt><dd className="model">{provider.model}</dd></div>}
+          </dl>
+        )}
 
         <div className="section-label">Plan</div>
         {plan.length === 0 ? (
-          <p className="dim">{running ? "Drafting a plan…" : "No plan was made."}</p>
+          <p className="dim">{running ? "Drafting a plan…" : fromFiles ? "Saved report — the research log isn't kept." : "No plan was made."}</p>
         ) : (
           <ol className="plan">
             {plan.map((s, i) => (
@@ -85,6 +99,8 @@ export function Workspace({ agent }: { agent: Agent }) {
       <div className="desk">
         {error && <div className="notice">{error}</div>}
 
+        {!fromFiles && (
+        <>
         <section>
           <div className="section-head">
             <div className="section-label">Live board</div>
@@ -110,7 +126,7 @@ export function Workspace({ agent }: { agent: Agent }) {
             {log.length === 0 && !running && <div className="log-line dim">Nothing was logged.</div>}
             {log.map((a) => <LogLine key={a.uid} a={a} t0={t0} />)}
             {running && (
-              <div className="log-line live">
+              <div className="log-line live" key="live">
                 <span className="t">{elapsed}</span>
                 <span className="k">····</span>
                 <span className="v">
@@ -121,6 +137,8 @@ export function Workspace({ agent }: { agent: Agent }) {
             )}
           </div>
         </section>
+        </>
+        )}
 
         <section>
           <div className="section-head">
@@ -135,6 +153,45 @@ export function Workspace({ agent }: { agent: Agent }) {
         </section>
 
         {report && <ReportView report={report} competitors={competitors} target={target} />}
+        {report && !running && (
+          <section className="deeper">
+            <div className="section-head">
+              <div className="section-label">Dig deeper</div>
+              <div className="count">the agent continues from this report</div>
+            </div>
+            <form
+              className="ask-more"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (question.trim()) {
+                  agent.followUp(question.trim());
+                  setQuestion("");
+                }
+              }}
+            >
+              <label className="field small">
+                <span className="field-label">Ask</span>
+                <input
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder="e.g. add Monday.com · verify Jira's enterprise pricing · find their latest funding"
+                  aria-label="Follow-up request for the agent"
+                />
+              </label>
+              <button type="submit" className="run small" disabled={!question.trim()}>
+                <span>Send agent</span>
+                <span className="run-arrow">→</span>
+              </button>
+            </form>
+            <div className="examples">
+              <span>Try</span>
+              {["Add two more competitors", "Double-check every price", "Write a cold email for each competitor's unhappy customers"].map((q) => (
+                <button key={q} type="button" onClick={() => setQuestion(q)}>{q}</button>
+              ))}
+            </div>
+          </section>
+        )}
+
       </div>
     </div>
   );

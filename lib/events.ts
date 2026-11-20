@@ -1,7 +1,9 @@
 // Events the agent streams to the browser, one JSON object per line.
-// Shared by the server (lib/agent.ts) and the UI (app/page.tsx).
+// Shared by the server (lib/) and the UI (components/).
 
 export type StepStatus = "pending" | "in_progress" | "done" | "skipped";
+
+export type Mode = "competitors" | "battlecards" | "market";
 
 export interface PlanStep {
   title: string;
@@ -28,7 +30,15 @@ export interface Report {
   report_markdown: string;
 }
 
+export interface ProviderInfo {
+  id: "anthropic" | "foundry" | "gemini" | "azure-openai";
+  label: string;
+  model: string;
+  free: boolean;
+}
+
 export type AgentEvent =
+  | { type: "meta"; provider: ProviderInfo; search: string }
   | { type: "status"; message: string }
   | { type: "thinking"; text: string }
   | { type: "text"; text: string }
@@ -41,6 +51,27 @@ export type AgentEvent =
   | { type: "competitor"; competitor: Competitor }
   | { type: "review"; approved: boolean; issues: string[]; attempt: number }
   | { type: "report"; report: Report }
-  | { type: "usage"; input_tokens: number; output_tokens: number; cache_read_tokens: number; web_searches: number }
+  | {
+      type: "usage";
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      web_searches: number;
+      /** Estimated USD so far; 0 on free tiers; null when the price isn't known (e.g. Azure deployments). */
+      cost: number | null;
+    }
   | { type: "error"; message: string }
   | { type: "done" };
+
+export interface FollowUp {
+  question: string;
+  report: Report;
+  competitors: Competitor[];
+}
+
+export interface RunRequest {
+  company: string;
+  focus?: string;
+  mode: Mode;
+  followUp?: FollowUp;
+}
