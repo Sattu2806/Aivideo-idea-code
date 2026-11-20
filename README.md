@@ -85,6 +85,7 @@ To make it cheaper, set `AGENT_EFFORT=low` in `.env.local`; for more thorough re
 | `app/page.tsx` | Page shell: switches between the landing page and the workspace |
 | `components/Landing.tsx` | Landing page with the request form |
 | `components/Workspace.tsx` | Live run view: plan, timestamped log, competitor ledger |
+| `components/AgentBoard.tsx` | Animated live board: sources, competitors and the agent moving between them |
 | `components/ReportView.tsx` | Report view plus the PDF / Markdown export |
 | `components/useAgent.ts` | Client state: streams events from the API |
 | `app/globals.css` | Design (paper, ink, one accent colour) and the print (PDF) layout |

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import type { Competitor } from "@/lib/events";
+import { AgentBoard } from "./AgentBoard";
 import { ReportView } from "./ReportView";
 import { estimateCost, type Activity, type useAgent } from "./useAgent";
 
@@ -83,6 +84,22 @@ export function Workspace({ agent }: { agent: Agent }) {
       {/* ------------ Right: log, ledger, report ------------ */}
       <div className="desk">
         {error && <div className="notice">{error}</div>}
+
+        <section>
+          <div className="section-head">
+            <div className="section-label">Live board</div>
+            <div className="count">{running ? "watching the agent" : "final state"}</div>
+          </div>
+          <AgentBoard
+            target={target}
+            activity={activity}
+            competitors={competitors}
+            running={running}
+            done={!!report}
+            thinking={thinking}
+            status={status}
+          />
+        </section>
 
         <section>
           <div className="section-head">
