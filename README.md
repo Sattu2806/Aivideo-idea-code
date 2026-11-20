@@ -83,11 +83,11 @@ To make it cheaper, set `AGENT_EFFORT=low` in `.env.local`; for more thorough re
 | `app/api/access/route.ts` | Checks the access code |
 | `lib/access.ts` | Access code check and per-IP run limit |
 | `app/page.tsx` | Page shell: switches between the landing page and the workspace |
-| `components/Landing.tsx` | Marketing landing page with the search bar |
-| `components/Workspace.tsx` | Live run view: plan, activity feed, competitor cards |
+| `components/Landing.tsx` | Landing page with the request form |
+| `components/Workspace.tsx` | Live run view: plan, timestamped log, competitor ledger |
 | `components/ReportView.tsx` | Report view plus the PDF / Markdown export |
 | `components/useAgent.ts` | Client state: streams events from the API |
-| `app/globals.css` | Design system, animations and the print (PDF) layout |
+| `app/globals.css` | Design (paper, ink, one accent colour) and the print (PDF) layout |
 
 ## Ideas to extend it (and for follow-up videos)
 

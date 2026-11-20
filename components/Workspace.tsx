@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { Competitor, PlanStep } from "@/lib/events";
-import { Back, Check, Doc, Search, Shield, Stop, Users } from "./Icons";
+import { Fragment, useEffect, useState } from "react";
+import type { Competitor } from "@/lib/events";
 import { ReportView } from "./ReportView";
 import { estimateCost, type Activity, type useAgent } from "./useAgent";
 
@@ -16,239 +15,212 @@ export function hostname(url: string) {
   }
 }
 
-function useElapsed(start: number | null, end: number | null) {
+function clock(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function useNow(active: boolean) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!start || end) return;
+    if (!active) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [start, end]);
-  if (!start) return "0:00";
-  const s = Math.max(0, Math.floor(((end ?? now) - start) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }, [active]);
+  return now;
 }
 
 export function Workspace({ agent }: { agent: Agent }) {
   const { phase, target, status, plan, activity, thinking, competitors, report, usage, error, startedAt, finishedAt } = agent;
-  const elapsed = useElapsed(startedAt, finishedAt);
   const running = phase === "running";
-  const doneSteps = plan.filter((s) => s.status === "done" || s.status === "skipped").length;
-  const progress = report ? 100 : plan.length ? Math.round((doneSteps / plan.length) * 92) + 4 : running ? 3 : 0;
+  const now = useNow(running);
+  const t0 = startedAt ?? now;
+  const elapsed = clock((finishedAt ?? now) - t0);
   const searches = activity.filter((a) => a.kind === "search").length;
   const reads = activity.filter((a) => a.kind === "fetch").length;
+  const log = [...activity].reverse(); // oldest first, like a real log
 
   return (
-    <div className="workspace">
-      {/* ---------- Run header ---------- */}
-      <div className="run-head">
-        <div className="run-title">
-          <button className="icon-btn" onClick={agent.reset} title="New research">
-            <Back />
-          </button>
-          <div>
-            <div className="run-kicker">
-              {running ? (
-                <><span className="live-dot" /> Researching</>
-              ) : report ? (
-                <><Check width={14} height={14} /> Report ready</>
-              ) : (
-                "Run ended"
-              )}
-            </div>
-            <h1>{target}</h1>
-          </div>
-        </div>
-        <div className="run-stats">
-          <Stat label="Elapsed" value={elapsed} />
-          <Stat label="Searches" value={String(searches)} />
-          <Stat label="Pages read" value={String(reads)} />
-          <Stat label="Est. cost" value={usage ? `$${estimateCost(usage).toFixed(2)}` : "$0.00"} />
-          {running && (
-            <button className="btn-stop" onClick={agent.stop}>
-              <Stop width={14} height={14} /> Stop
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="progress"><div style={{ width: `${progress}%` }} /></div>
+    <div className="ws">
+      {/* ------------ Left: the file ------------ */}
+      <aside className="file">
+        <div className="kicker">{running ? "Subject under research" : report ? "Report filed" : "Run ended"}</div>
+        <h1 className="subject">{target}</h1>
 
-      {error && <div className="alert">{error}</div>}
+        <dl className="meta">
+          <div><dt>Elapsed</dt><dd>{elapsed}</dd></div>
+          <div><dt>Searches</dt><dd>{searches}</dd></div>
+          <div><dt>Pages read</dt><dd>{reads}</dd></div>
+          <div><dt>Est. cost</dt><dd>${usage ? estimateCost(usage).toFixed(2) : "0.00"}</dd></div>
+        </dl>
 
-      {/* ---------- Main grid ---------- */}
-      <div className="ws-grid">
-        <aside className="glass plan-card">
-          <div className="card-title">Research plan</div>
-          {plan.length === 0 ? (
-            <div className="skeleton-list">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton" />)}</div>
+        <div className="section-label">Plan</div>
+        {plan.length === 0 ? (
+          <p className="dim">{running ? "Drafting a plan…" : "No plan was made."}</p>
+        ) : (
+          <ol className="plan">
+            {plan.map((s, i) => (
+              <li key={i} className={s.status}>
+                <span className="box">{s.status === "done" ? "×" : s.status === "in_progress" ? "→" : s.status === "skipped" ? "–" : ""}</span>
+                <span>
+                  {s.title}
+                  {s.note && <em className="plan-note">{s.note}</em>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <div className="file-actions">
+          {running ? (
+            <button className="link danger" onClick={agent.stop}>Stop the agent</button>
           ) : (
-            <ol className="timeline">
-              {plan.map((s, i) => <PlanItem key={i} step={s} />)}
-            </ol>
+            <button className="link" onClick={agent.reset}>← New request</button>
           )}
+        </div>
+      </aside>
 
-          {running && (
-            <div className="now">
-              <div className="now-label"><span className="spinner" /> {status || "Working…"}</div>
-              {thinking && <div className="now-thinking">{thinking}</div>}
-            </div>
-          )}
-        </aside>
+      {/* ------------ Right: log, ledger, report ------------ */}
+      <div className="desk">
+        {error && <div className="notice">{error}</div>}
 
-        <section className="glass feed-card">
-          <div className="card-title">
-            Live activity <span className="count-pill">{activity.length}</span>
+        <section>
+          <div className="section-head">
+            <div className="section-label">Log</div>
+            <div className="count">{activity.length} entries</div>
           </div>
-          {activity.length === 0 ? (
-            <div className="empty">
-              <div className="orb" />
-              <p>The agent is getting started. Every search and page it reads will appear here.</p>
-            </div>
+          <div className="log">
+            {log.length === 0 && !running && <div className="log-line dim">Nothing was logged.</div>}
+            {log.map((a) => <LogLine key={a.uid} a={a} t0={t0} />)}
+            {running && (
+              <div className="log-line live">
+                <span className="t">{elapsed}</span>
+                <span className="k">····</span>
+                <span className="v">
+                  {thinking ? <span className="thinking">{thinking.slice(-160)}</span> : status || "Working"}
+                  <span className="cursor" />
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="section-head">
+            <div className="section-label">Competitors</div>
+            <div className="count">{competitors.length} profiled</div>
+          </div>
+          {competitors.length === 0 ? (
+            <p className="dim">{running ? "Profiles are added here as the agent finishes each competitor." : "No competitors were profiled."}</p>
           ) : (
-            <ul className="feed">
-              {activity.map((a) => <FeedItem key={a.uid} a={a} />)}
-            </ul>
+            <Ledger rows={competitors} />
           )}
         </section>
+
+        {report && <ReportView report={report} competitors={competitors} target={target} />}
       </div>
-
-      {/* ---------- Competitors ---------- */}
-      <section className="block">
-        <div className="block-head">
-          <h2>Competitors</h2>
-          <span className="muted">{competitors.length ? `${competitors.length} profiled` : "Profiles appear as each one is finished"}</span>
-        </div>
-        <div className="comp-grid">
-          {competitors.map((c, i) => <CompetitorCard key={i} c={c} />)}
-          {running && competitors.length < 3 &&
-            Array.from({ length: 3 - competitors.length }).map((_, i) => (
-              <div key={`ph${i}`} className="comp-card placeholder">
-                <Users />
-                <span>Researching…</span>
-              </div>
-            ))}
-        </div>
-      </section>
-
-      {report && <ReportView report={report} competitors={competitors} target={target} />}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function PlanItem({ step }: { step: PlanStep }) {
-  return (
-    <li className={`tl-item ${step.status}`}>
-      <span className="tl-marker">{step.status === "done" ? <Check width={12} height={12} /> : null}</span>
-      <div>
-        <div className="tl-title">{step.title}</div>
-        {step.note && <div className="tl-note">{step.note}</div>}
-      </div>
-    </li>
-  );
-}
-
-function FeedItem({ a }: { a: Activity }) {
+function LogLine({ a, t0 }: { a: Activity; t0: number }) {
+  const t = clock(a.at - t0);
   if (a.kind === "search") {
     return (
-      <li className="feed-item">
-        <span className="fi-icon search"><Search width={15} height={15} /></span>
-        <div className="fi-body">
-          <div className="fi-kicker">Searched the web</div>
-          <div className="fi-main">{a.query}</div>
-          {a.error ? (
-            <div className="fi-sub bad">Search failed ({a.error})</div>
-          ) : a.results ? (
-            <div className="favicons">
-              {a.results.slice(0, 5).map((r) => (
-                <span key={r.url} className="fav">{hostname(r.url)}</span>
-              ))}
-              {a.results.length > 5 && <span className="fav more">+{a.results.length - 5}</span>}
-            </div>
-          ) : (
-            <div className="fi-sub shimmer-text">Searching…</div>
-          )}
-        </div>
-      </li>
+      <div className="log-line">
+        <span className="t">{t}</span>
+        <span className="k">SEARCH</span>
+        <span className="v">
+          “{a.query}”
+          {a.error ? <span className="err"> — failed ({a.error})</span> : a.results && <span className="dim"> — {a.results.length} results</span>}
+        </span>
+      </div>
     );
   }
   if (a.kind === "fetch") {
     return (
-      <li className="feed-item">
-        <span className="fi-icon read"><Doc width={15} height={15} /></span>
-        <div className="fi-body">
-          <div className="fi-kicker">{a.done ? "Read page" : "Reading page"}</div>
-          <div className="fi-main">{a.title || hostname(a.url)}</div>
-          <div className={`fi-sub ${a.error ? "bad" : ""}`}>{a.error ? `Couldn't open (${a.error})` : hostname(a.url)}</div>
-        </div>
-      </li>
+      <div className="log-line">
+        <span className="t">{t}</span>
+        <span className="k">READ</span>
+        <span className="v">
+          {hostname(a.url)}
+          {a.error ? <span className="err"> — couldn&apos;t open ({a.error})</span> : a.title && <span className="dim"> — {a.title}</span>}
+          {!a.done && !a.error && <span className="dim"> …</span>}
+        </span>
+      </div>
     );
   }
   if (a.kind === "competitor") {
     return (
-      <li className="feed-item">
-        <span className="fi-icon comp"><Users width={15} height={15} /></span>
-        <div className="fi-body">
-          <div className="fi-kicker">Profile saved</div>
-          <div className="fi-main">{a.name}</div>
-        </div>
-      </li>
+      <div className="log-line">
+        <span className="t">{t}</span>
+        <span className="k">FILED</span>
+        <span className="v">Profile: <strong>{a.name}</strong></span>
+      </div>
     );
   }
   return (
-    <li className={`feed-item review ${a.approved ? "ok" : "back"}`}>
-      <span className="fi-icon rev"><Shield width={15} height={15} /></span>
-      <div className="fi-body">
-        <div className="fi-kicker">Reviewer · round {a.attempt}</div>
-        <div className="fi-main">{a.approved ? "Report approved" : "Sent back for fixes"}</div>
-        {a.issues.length > 0 && (
-          <ul className="fi-issues">{a.issues.map((x, i) => <li key={i}>{x}</li>)}</ul>
-        )}
-      </div>
-    </li>
+    <div className={`log-line review ${a.approved ? "ok" : "back"}`}>
+      <span className="t">{t}</span>
+      <span className="k">REVIEW</span>
+      <span className="v">
+        {a.approved ? "Approved." : `Sent back (round ${a.attempt}):`}
+        {a.issues.map((x, i) => <span key={i} className="issue">— {x}</span>)}
+      </span>
+    </div>
   );
 }
 
-function CompetitorCard({ c }: { c: Competitor }) {
-  const level = { low: 1, medium: 2, high: 3 }[c.threat_level];
+function Ledger({ rows }: { rows: Competitor[] }) {
+  const [open, setOpen] = useState<number | null>(null);
   return (
-    <article className="comp-card">
-      <div className="comp-head">
-        <div className="comp-avatar">{c.name.slice(0, 1)}</div>
-        <div className="comp-name">
-          <h3>{c.name}</h3>
-          <a href={c.website.startsWith("http") ? c.website : `https://${c.website}`} target="_blank" rel="noreferrer">
-            {hostname(c.website)}
-          </a>
-        </div>
-        <div className={`meter ${c.threat_level}`} title={`${c.threat_level} threat`}>
-          {[1, 2, 3].map((n) => <span key={n} className={n <= level ? "on" : ""} />)}
-          <em>{c.threat_level}</em>
-        </div>
-      </div>
-      <p className="comp-line">{c.one_liner}</p>
-      <div className="comp-facts">
-        <div><span>Pricing</span><p>{c.pricing}</p></div>
-        <div><span>Best for</span><p>{c.target_customers}</p></div>
-      </div>
-      <div className="comp-pc">
-        <div>
-          <span className="pc-h good">Strengths</span>
-          <ul>{c.strengths.slice(0, 3).map((s, i) => <li key={i}>{s}</li>)}</ul>
-        </div>
-        <div>
-          <span className="pc-h bad">Weaknesses</span>
-          <ul>{c.weaknesses.slice(0, 3).map((s, i) => <li key={i}>{s}</li>)}</ul>
-        </div>
-      </div>
-      <div className="comp-foot">{c.sources.length} sources</div>
-    </article>
+    <table className="ledger">
+      <thead>
+        <tr><th>#</th><th>Competitor</th><th>Pricing</th><th>Best for</th><th>Threat</th></tr>
+      </thead>
+      <tbody>
+        {rows.map((c, i) => {
+          const level = { low: 1, medium: 2, high: 3 }[c.threat_level];
+          const isOpen = open === i;
+          return (
+            <Fragment key={c.name + i}>
+              <tr className={`row ${isOpen ? "open" : ""}`} onClick={() => setOpen(isOpen ? null : i)}>
+                <td className="mono dim">{String(i + 1).padStart(2, "0")}</td>
+                <td>
+                  <div className="c-name">{c.name}</div>
+                  <div className="mono dim small">{hostname(c.website)}</div>
+                </td>
+                <td>{c.pricing}</td>
+                <td>{c.target_customers}</td>
+                <td>
+                  <span className={`threat t${level}`} title={`${c.threat_level} threat`}>
+                    {[1, 2, 3].map((n) => <i key={n} className={n <= level ? "on" : ""} />)}
+                  </span>
+                </td>
+              </tr>
+              {isOpen && (
+                <tr className="detail">
+                  <td />
+                  <td colSpan={4}>
+                    <p className="c-line">{c.one_liner}</p>
+                    <div className="sw">
+                      <div><div className="section-label">Strengths</div><ul>{c.strengths.map((s, j) => <li key={j}>{s}</li>)}</ul></div>
+                      <div><div className="section-label">Weaknesses</div><ul>{c.weaknesses.map((s, j) => <li key={j}>{s}</li>)}</ul></div>
+                    </div>
+                    {c.sources.length > 0 && (
+                      <div className="sources mono small">
+                        {c.sources.slice(0, 6).map((s) => (
+                          <a key={s} href={s} target="_blank" rel="noreferrer">{hostname(s)}</a>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

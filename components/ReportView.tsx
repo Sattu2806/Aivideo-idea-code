@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Competitor, Report } from "@/lib/events";
-import { Check, Copy, Doc, Download, Logo } from "./Icons";
 
 function slug(s: string) {
   return s.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "report";
@@ -21,12 +20,13 @@ export function ReportView({ report, competitors, target }: { report: Report; co
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const date = new Date().toLocaleDateString(undefined, { dateStyle: "long" });
 
-  // PDF export uses the browser's print engine with a dedicated print layout
-  // (see .print-doc in globals.css): crisp vector text, selectable, clickable links.
+  // PDF export uses the browser's print engine with the print layout in globals.css:
+  // vector text, selectable, clickable links.
   function exportPdf() {
     const previous = document.title;
-    document.title = `${slug(target)}-competitor-report`; // becomes the default PDF file name
+    document.title = `${slug(target)}-competitor-report`; // default PDF file name
     window.print();
     document.title = previous;
   }
@@ -43,76 +43,60 @@ export function ReportView({ report, competitors, target }: { report: Report; co
   async function copy() {
     await navigator.clipboard.writeText(toMarkdown(report));
     setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+    setTimeout(() => setCopied(false), 1600);
   }
 
   return (
-    <section className="block">
-      <div className="block-head">
-        <h2>Report</h2>
-        <div className="toolbar">
-          <button className="tool-btn" onClick={copy}>
-            {copied ? <Check width={15} height={15} /> : <Copy width={15} height={15} />} {copied ? "Copied" : "Copy"}
-          </button>
-          <button className="tool-btn" onClick={downloadMd}>
-            <Doc width={15} height={15} /> Markdown
-          </button>
-          <button className="btn-primary sm" onClick={exportPdf}>
-            <Download width={15} height={15} /> Export PDF
-          </button>
+    <section>
+      <div className="section-head">
+        <div className="section-label">Report</div>
+        <div className="actions">
+          <button className="link" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+          <button className="link" onClick={downloadMd}>Markdown</button>
+          <button className="run small" onClick={exportPdf}><span>Export PDF</span><span className="run-arrow">↓</span></button>
         </div>
       </div>
 
-      <article className="paper">
-        <div className="paper-head">
-          <div className="paper-kicker">Competitive analysis · {new Date().toLocaleDateString(undefined, { dateStyle: "long" })}</div>
-          <h1>{report.title}</h1>
-          <p className="paper-summary">{report.executive_summary}</p>
+      <article className="doc">
+        <div className="doc-meta mono">
+          <span>Competitive analysis</span>
+          <span>{date}</span>
         </div>
+        <h1 className="doc-title">{report.title}</h1>
+        <p className="doc-summary">{report.executive_summary}</p>
         <div className="markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>
-            {report.report_markdown}
-          </ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>{report.report_markdown}</ReactMarkdown>
         </div>
       </article>
 
-      {mounted && createPortal(<PrintDocument report={report} competitors={competitors} target={target} />, document.body)}
+      {mounted && createPortal(<PrintDocument report={report} competitors={competitors} target={target} date={date} />, document.body)}
     </section>
   );
 }
 
-// Only visible when printing / saving as PDF.
-function PrintDocument({ report, competitors, target }: { report: Report; competitors: Competitor[]; target: string }) {
-  const date = new Date().toLocaleDateString(undefined, { dateStyle: "long" });
+// Only rendered on paper / PDF.
+function PrintDocument({ report, competitors, target, date }: { report: Report; competitors: Competitor[]; target: string; date: string }) {
   return (
     <div className="print-doc">
-      <header className="pd-cover">
-        <div className="pd-brand">
-          <Logo width={30} height={30} /> <span>Competitor Intel</span>
-        </div>
-        <div className="pd-meta">Competitive analysis · {date}</div>
+      <header className="pd-head">
+        <div className="pd-row"><strong>INTEL/01</strong><span>Competitive analysis · {date}</span></div>
         <h1>{report.title}</h1>
         <div className="pd-target">Subject: {target}</div>
-        <div className="pd-summary">
-          <div className="pd-label">Executive summary</div>
-          <p>{report.executive_summary}</p>
-        </div>
+        <p className="pd-summary">{report.executive_summary}</p>
       </header>
 
       {competitors.length > 0 && (
         <section className="pd-section">
           <h2>Competitors at a glance</h2>
           <table className="pd-table">
-            <thead>
-              <tr><th>Competitor</th><th>Pricing</th><th>Best for</th><th>Threat</th></tr>
-            </thead>
+            <thead><tr><th>Competitor</th><th>Pricing</th><th>Best for</th><th>Threat</th></tr></thead>
             <tbody>
               {competitors.map((c) => (
                 <tr key={c.name}>
                   <td><strong>{c.name}</strong><br /><span className="pd-muted">{c.website}</span></td>
                   <td>{c.pricing}</td>
                   <td>{c.target_customers}</td>
-                  <td><span className={`pd-threat ${c.threat_level}`}>{c.threat_level}</span></td>
+                  <td className={`pd-threat ${c.threat_level}`}>{c.threat_level}</td>
                 </tr>
               ))}
             </tbody>
@@ -124,7 +108,7 @@ function PrintDocument({ report, competitors, target }: { report: Report; compet
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.report_markdown}</ReactMarkdown>
       </section>
 
-      <footer className="pd-footer">Researched by an AI agent. Verify key figures against the linked sources before making decisions.</footer>
+      <footer className="pd-footer">Researched by an AI agent. Check key figures against the linked sources before acting on them.</footer>
     </div>
   );
 }
