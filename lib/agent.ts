@@ -216,7 +216,7 @@ export async function runCompetitorAgent({ company, focus, emit, signal }: RunOp
   const usage = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, web_searches: 0 };
 
   for (let turn = 0; turn < MAX_TURNS && !finished; turn++) {
-    emit({ type: "status", message: turn === 0 ? "Agent is planning…" : `Agent step ${turn + 1}` });
+    emit({ type: "status", message: turn === 0 ? "Planning the research…" : "Deciding the next move…" });
 
     const stream = client.beta.messages.stream(
       {

@@ -53,7 +53,20 @@ Open http://localhost:3000 and enter a company, for example `linear.app`, `notio
 3. Deploy.
 
 A run takes a few minutes. The API route asks for up to 800 seconds (`maxDuration`); how much of that you actually get depends on your Vercel plan.
-**Before sharing a public link**, add a password or rate limit: each run spends your API credits.
+
+## Lock it before you share it
+
+Every run spends your API credits, so set these in Vercel (or `.env.local`) before you share a link:
+
+| Variable | What it does |
+|---|---|
+| `ACCESS_CODE` | Visitors must enter this code to run the agent. Leave empty for open access (only on your own machine). |
+| `MAX_RUNS_PER_HOUR` | Runs allowed per IP address per hour. Default 5; `0` means no limit. It's kept in server memory, so on serverless hosts it's best effort. Use Upstash Redis or Vercel KV if you need a strict limit. |
+
+## Exporting reports
+
+- **Export PDF:** opens your browser's save dialog with a branded print layout: cover, executive summary, competitor table and the full report. Choose "Save as PDF". The text stays selectable and the links stay clickable.
+- **Markdown** and **Copy:** for pasting into Notion, Google Docs or an email.
 
 ## Cost
 
@@ -67,11 +80,18 @@ To make it cheaper, set `AGENT_EFFORT=low` in `.env.local`; for more thorough re
 | `lib/agent.ts` | The agent: system prompt, tools, the loop, and the reviewer |
 | `lib/events.ts` | Event types streamed from the server to the UI |
 | `app/api/research/route.ts` | API route that runs the agent and streams its events |
-| `app/page.tsx` | The UI |
+| `app/api/access/route.ts` | Checks the access code |
+| `lib/access.ts` | Access code check and per-IP run limit |
+| `app/page.tsx` | Page shell: switches between the landing page and the workspace |
+| `components/Landing.tsx` | Marketing landing page with the search bar |
+| `components/Workspace.tsx` | Live run view: plan, activity feed, competitor cards |
+| `components/ReportView.tsx` | Report view plus the PDF / Markdown export |
+| `components/useAgent.ts` | Client state: streams events from the API |
+| `app/globals.css` | Design system, animations and the print (PDF) layout |
 
 ## Ideas to extend it (and for follow-up videos)
 
-- Export the report to PDF or Google Docs.
+- Export straight to Google Docs.
 - Run it every week and email you what changed in competitor pricing.
 - Add a "battle card" mode for sales teams: how to win against each competitor.
 - Let it research a whole market from a single keyword ("CRM for dentists").

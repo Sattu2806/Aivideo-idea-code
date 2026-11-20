@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { checkAccessCode, clientIp, takeRun } from "@/lib/access";
 import { runCompetitorAgent } from "@/lib/agent";
 import type { AgentEvent } from "@/lib/events";
 
@@ -6,10 +7,21 @@ export const runtime = "nodejs";
 export const maxDuration = 800; // research runs take a few minutes (Vercel caps this by plan)
 
 export async function POST(req: Request) {
+  if (!checkAccessCode(req.headers.get("x-access-code"))) {
+    return Response.json({ error: "Access code required", code: "access_required" }, { status: 401 });
+  }
   const body = (await req.json().catch(() => ({}))) as { company?: string; focus?: string };
   const company = body.company?.trim().slice(0, 300);
   const focus = body.focus?.trim().slice(0, 500) || undefined;
   if (!company) return Response.json({ error: "company is required" }, { status: 400 });
+
+  const quota = takeRun(clientIp(req));
+  if (!quota.ok) {
+    return Response.json(
+      { error: `Run limit reached. Try again in about ${quota.retryInMinutes} minutes.`, code: "rate_limited" },
+      { status: 429 },
+    );
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
