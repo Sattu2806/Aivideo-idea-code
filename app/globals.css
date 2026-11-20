@@ -195,66 +195,80 @@ main { flex: 1; }
 .deeper .examples { margin-top: 16px; }
 
 /* Live board */
-.board { position: relative; border: 1px solid var(--rule-strong); background:
-  radial-gradient(circle at 50% 50%, rgba(255, 79, 0, 0.05), transparent 45%),
-  repeating-linear-gradient(0deg, transparent 0 31px, rgba(20, 20, 19, 0.045) 31px 32px),
-  repeating-linear-gradient(90deg, transparent 0 31px, rgba(20, 20, 19, 0.045) 31px 32px),
-  #f7f5ef; overflow: hidden; }
+.board {
+  position: relative; overflow: hidden; border: 1px solid var(--rule-strong);
+  background: radial-gradient(circle, rgba(20, 20, 19, 0.13) 1px, transparent 1.3px) 0 0 / 22px 22px, #f7f5ef;
+}
 .board svg { display: block; width: 100%; height: auto; }
-.orbit { fill: none; stroke: var(--rule); stroke-dasharray: 2 6; }
-.ripple { fill: none; stroke: var(--signal); stroke-width: 1.2; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ripple 2.2s cubic-bezier(.2,.7,.3,1) forwards; }
-.edge { stroke: var(--ink); stroke-width: 0.8; opacity: 0.45; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.9s ease-out forwards; }
-.edge.failed { stroke-dasharray: 0.02 0.02; opacity: 0.25; animation: fade-in 0.6s forwards; stroke-dashoffset: 0; }
-.edge.comp-edge { stroke: var(--signal); opacity: 0.55; stroke-width: 1; animation-duration: 1.2s; }
-.pop { transform-box: fill-box; transform-origin: center; animation: pop 0.5s cubic-bezier(.3,1.6,.5,1) both; }
-.src rect { fill: var(--paper); stroke: var(--ink); stroke-width: 1.4; }
-.src path { stroke: var(--signal); stroke-width: 1.2; }
-.src text { font: 14px var(--mono); fill: var(--ink-2); }
+.orbit { fill: none; stroke: var(--rule); stroke-width: 1; stroke-dasharray: 1 7; stroke-linecap: round; }
+.sweep { stroke: var(--signal); stroke-width: 1.4; stroke-linecap: round; }
+.ripple { fill: none; stroke: var(--signal); stroke-width: 1.2; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ripple 2.4s cubic-bezier(.2,.7,.3,1) forwards; }
+.edge { stroke: var(--ink); stroke-width: 0.9; opacity: 0.32; stroke-linecap: round; }
+.edge.failed { stroke-dasharray: 3 4; opacity: 0.2; }
+.edge.owned { stroke: var(--signal); opacity: 0.5; stroke-width: 1; }
+.edge.comp-edge { stroke: var(--signal); opacity: 0.85; stroke-width: 1.6; }
+.finale { fill: none; stroke: var(--ok); stroke-width: 1.4; opacity: 0.7; }
+
+.src rect { fill: #f7f5ef; stroke: var(--ink); stroke-width: 1.4; transition: fill 0.3s; }
+.src.owned rect { fill: var(--ink); }
+.src.active rect { fill: var(--signal); stroke: var(--signal); }
+.src-halo { fill: none; stroke: var(--signal); stroke-width: 1.2; opacity: 0.5; }
+.src path { stroke: var(--signal); stroke-width: 1.4; }
+.src text { font: 14px var(--mono); fill: var(--ink-2); paint-order: stroke; stroke: #f7f5ef; stroke-width: 5px; stroke-linejoin: round; }
+.src.active text { fill: var(--signal); }
 .src.failed text { fill: var(--dim); text-decoration: line-through; }
-.comp circle { fill: var(--signal); stroke: var(--paper); stroke-width: 3; }
-.comp.t-low circle { fill: var(--ink); }
-.comp text { font: 400 26px var(--serif); fill: var(--ink); paint-order: stroke; stroke: #f7f5ef; stroke-width: 5px; stroke-linejoin: round; }
-.subject-node > circle:not(.halo) { fill: var(--ink); }
-.subject-node .halo { fill: none; stroke: var(--ink); stroke-width: 1; }
-.board.is-live .subject-node .halo { stroke: var(--signal); transform-box: fill-box; transform-origin: center; animation: breathe 2.4s ease-in-out infinite; }
-.subject-label { font: 400 36px var(--serif); fill: var(--ink); paint-order: stroke; stroke: #f7f5ef; stroke-width: 6px; stroke-linejoin: round; }
-.query { font: 14px var(--mono); fill: var(--signal); paint-order: stroke; stroke: #f7f5ef; stroke-width: 5px; animation: fade-in 0.5s ease-out; }
-.agent { transition: transform 0.9s cubic-bezier(.6,0,.2,1); }
-.agent-dot { fill: var(--signal); }
-.agent-ring { fill: none; stroke: var(--signal); stroke-width: 1.2; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ping-ring 1.4s ease-out infinite; }
+
+.comp-ring { fill: none; stroke: var(--signal); stroke-width: 1.2; opacity: 0.45; }
+.comp-core { fill: var(--signal); stroke: #f7f5ef; stroke-width: 3; }
+.comp.t-low .comp-core { fill: var(--ink); }
+.comp.t-low .comp-ring { stroke: var(--ink); }
+.board.is-live .comp-ring { transform-box: fill-box; transform-origin: center; animation: breathe 2.6s ease-in-out infinite; }
+.comp text { font: 400 27px var(--serif); fill: var(--ink); paint-order: stroke; stroke: #f7f5ef; stroke-width: 6px; stroke-linejoin: round; }
+
+.subject-node .core { fill: var(--ink); }
+.subject-node .halo { fill: #f7f5ef; stroke: var(--ink); stroke-width: 1.2; }
+.board.is-live .subject-node .halo { stroke: var(--signal); }
+.board.is-filed .subject-node .halo { stroke: var(--ok); }
+.subject-label { font: 400 36px var(--serif); fill: var(--ink); paint-order: stroke; stroke: #f7f5ef; stroke-width: 7px; stroke-linejoin: round; }
+.query { font: 14px var(--mono); fill: var(--signal); paint-order: stroke; stroke: #f7f5ef; stroke-width: 6px; animation: fade-in 0.4s ease-out; }
+
+.trail { stroke: var(--signal); stroke-linecap: round; }
+.agent-dot { fill: var(--signal); stroke: #f7f5ef; stroke-width: 2; }
+.agent-ring { fill: none; stroke: var(--signal); stroke-width: 1.3; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ping-ring 1.3s ease-out infinite; }
 
 .stamp {
-  position: absolute; top: 18px; right: 18px; padding: 8px 14px 6px; border: 2.5px solid currentColor; border-radius: 4px;
-  font: 700 20px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.12em; transform: rotate(-7deg);
-  animation: stamp 0.45s cubic-bezier(.2,1.4,.4,1) both; mix-blend-mode: multiply; background: rgba(247, 245, 239, 0.6);
+  position: absolute; bottom: 66px; right: 20px; padding: 7px 12px 5px; border: 2.5px solid currentColor; outline: 1px solid currentColor; outline-offset: 3px;
+  font: 700 17px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.14em; transform: rotate(-6deg);
+  animation: stamp 0.5s cubic-bezier(.2,1.4,.4,1) both; background: rgba(247, 245, 239, 0.85);
 }
-.stamp small { display: block; margin-top: 4px; font: 500 9px var(--mono); letter-spacing: 0.14em; }
+.stamp small { display: block; margin-top: 5px; font: 500 9px var(--mono); letter-spacing: 0.16em; }
 .stamp.back { color: var(--signal); }
 .stamp.ok { color: var(--ok); }
 
 .board-caption {
-  display: flex; align-items: baseline; gap: 14px; padding: 12px 16px; border-top: 1px solid var(--rule-strong);
+  display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-top: 1px solid var(--rule-strong);
   background: var(--paper); font: 13px var(--mono); min-height: 46px;
 }
-.board-caption .verb { flex: none; font-size: 11px; letter-spacing: 0.12em; color: var(--paper); background: var(--ink); padding: 2px 7px; }
+.board-caption .verb { flex: none; font-size: 11px; letter-spacing: 0.12em; color: var(--paper); background: var(--ink); padding: 3px 8px; }
 .board.is-live .board-caption .verb { background: var(--signal); }
-.caption-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; animation: type-in 0.3s ease-out; }
+.board.is-filed .board-caption .verb { background: var(--ok); }
+.caption-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.counters { flex: none; display: flex; gap: 16px; color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+.counters b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .board-legend { position: absolute; left: 16px; top: 14px; display: flex; gap: 16px; font: 10.5px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
 .board-legend span { display: flex; align-items: center; gap: 6px; }
 .board-legend i { display: inline-block; width: 8px; height: 8px; }
-.lg-src { border: 1.2px solid var(--ink); }
-.lg-comp { background: var(--signal); border-radius: 50%; }
-.lg-agent { border: 1.2px solid var(--signal); border-radius: 50%; box-shadow: inset 0 0 0 2px var(--paper), inset 0 0 0 4px var(--signal); }
+.lg-src { border: 1.3px solid var(--ink); transform: rotate(45deg) scale(0.85); }
+.lg-comp { background: var(--signal); border-radius: 50%; box-shadow: 0 0 0 2px #f7f5ef, 0 0 0 3px rgba(255, 79, 0, 0.45); }
+.lg-agent { background: var(--signal); border-radius: 50%; width: 7px !important; height: 7px !important; box-shadow: -6px 0 0 -2px rgba(255,79,0,.5), -11px 0 0 -3px rgba(255,79,0,.25); margin-left: 10px; }
+
+@keyframes ripple { from { transform: scale(0.4); opacity: 0.9; } to { transform: scale(6); opacity: 0; } }
+@keyframes breathe { 50% { transform: scale(1.3); opacity: 0.15; } }
+@keyframes ping-ring { from { transform: scale(0.5); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes stamp { from { transform: rotate(-6deg) scale(2.6); opacity: 0; } 60% { opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } }
 
 .log { max-height: 320px; overflow-y: auto; }
-
-@keyframes draw { to { stroke-dashoffset: 0; } }
-@keyframes pop { from { transform: scale(0); opacity: 0; } }
-@keyframes ripple { from { transform: scale(0.4); opacity: 0.9; } to { transform: scale(6); opacity: 0; } }
-@keyframes breathe { 50% { transform: scale(1.25); opacity: 0.4; } }
-@keyframes ping-ring { from { transform: scale(0.5); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
-@keyframes stamp { from { transform: rotate(-7deg) scale(2.4); opacity: 0; } 60% { opacity: 1; } }
-@keyframes fade-in { from { opacity: 0; } }
 
 /* Ledger */
 .ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -353,13 +367,13 @@ main { flex: 1; }
   .modes button { flex: 1; padding: 10px 8px; font-size: 11px; }
   .doc { box-shadow: 4px 4px 0 var(--ink); }
   .board-legend { display: none; }
-  .src text { font-size: 24px; }
-  .comp text { font-size: 40px; stroke-width: 8px; }
-  .subject-label { font-size: 52px; }
-  .query { font-size: 22px; }
-  .src rect { stroke-width: 2.4; }
+  .src text { font-size: 22px; }
+  .comp text { font-size: 38px; stroke-width: 8px; }
+  .subject-label { font-size: 50px; }
+  .query { font-size: 20px; }
+  .counters { display: none; }
   .preview .section-head { flex-direction: column; gap: 2px; }
-  .stamp { font-size: 14px; top: 10px; right: 10px; }
+  .stamp { font-size: 12px; bottom: 54px; right: 10px; }
 }
 
 /* =========================================================================
