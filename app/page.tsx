@@ -37,6 +37,11 @@ export default function Home() {
             history={agent.history}
             onOpen={agent.openSaved}
             onRemove={agent.removeSaved}
+            watches={agent.watches}
+            watchStore={agent.watchStore}
+            onRunWatch={agent.runWatch}
+            onOpenWatch={agent.openWatch}
+            onUnwatch={agent.unwatch}
           />
         )}
       </main>

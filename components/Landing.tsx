@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Mode, ProviderInfo } from "@/lib/events";
 import { DemoBoard } from "./DemoBoard";
-import { MODE_LABEL, type SavedFile } from "./useAgent";
+import { MODE_LABEL, type SavedFile, type WatchSummary } from "./useAgent";
 
 const MODES: { id: Mode; hint: string; placeholder: string; examples: string[] }[] = [
   { id: "competitors", hint: "Who you're up against, and where they're weak.", placeholder: "company.com", examples: ["linear.app", "notion.so", "calendly.com"] },
@@ -19,9 +19,14 @@ interface Props {
   history: SavedFile[];
   onOpen: (f: SavedFile) => void;
   onRemove: (id: string) => void;
+  watches: WatchSummary[];
+  watchStore: string | null;
+  onRunWatch: (w: WatchSummary) => void;
+  onOpenWatch: (w: WatchSummary) => void;
+  onUnwatch: (id: string) => void;
 }
 
-export function Landing({ onRun, locked, provider, searchBackend, history, onOpen, onRemove }: Props) {
+export function Landing({ onRun, locked, provider, searchBackend, history, onOpen, onRemove, watches, watchStore, onRunWatch, onOpenWatch, onUnwatch }: Props) {
   const [company, setCompany] = useState("");
   const [focus, setFocus] = useState("");
   const [mode, setMode] = useState<Mode>("competitors");
@@ -128,6 +133,37 @@ export function Landing({ onRun, locked, provider, searchBackend, history, onOpe
           </div>
         ))}
       </section>
+
+      {watches.length > 0 && (
+        <section className="files watchlist">
+          <div className="section-head">
+            <div className="section-label">Watchlist</div>
+            <div className="count">Re-checked automatically · {watchStore === "upstash" ? "Upstash" : "saved on this server"}</div>
+          </div>
+          <ul>
+            {watches.map((w) => {
+              const due = Date.parse(w.nextRunAt) <= Date.now();
+              const n = w.runCount > 1 ? w.latest?.changes.length ?? 0 : null;
+              const fmt = (d: string) => new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+              return (
+                <li key={w.id}>
+                  <button className="file-row" onClick={() => onOpenWatch(w)} disabled={!w.latest}>
+                    <span className="file-target">{w.company}</span>
+                    <span className="file-title">
+                      {n === null ? "Baseline saved — first check pending" : n === 0 ? "No changes at the last check" : <span className="chg-badge">{n} change{n === 1 ? "" : "s"} found</span>}
+                    </span>
+                    <span className="file-meta">
+                      {w.runningSince ? "Checking now…" : `${due ? "Due" : "Next"} ${fmt(w.nextRunAt)}`} · {MODE_LABEL[w.mode]}
+                    </span>
+                  </button>
+                  <button className="file-act link" onClick={() => onRunWatch(w)} disabled={!!w.runningSince}>Check now</button>
+                  <button className="file-x" onClick={() => onUnwatch(w.id)} aria-label={`Stop watching ${w.company}`}>×</button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {history.length > 0 && (
         <section className="files">

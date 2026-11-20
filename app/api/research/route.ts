@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { checkAccessCode, clientIp, takeRun } from "@/lib/access";
 import { z } from "zod";
 import { runAgent } from "@/lib/agent";
+import { runWatchCheck } from "@/lib/watch/run";
 import type { AgentEvent, RunRequest } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -13,6 +14,8 @@ const Competitor = z.object({
   threat_level: z.enum(["low", "medium", "high"]), sources: z.array(z.string()),
 });
 const Body = z.object({
+  /** Set to run a watch-mode re-check instead of a new request. */
+  watchId: z.string().max(64).optional(),
   company: z.string().trim().min(1).max(300),
   focus: z.string().trim().max(500).optional(),
   mode: z.enum(["competitors", "battlecards", "market"]).default("competitors"),
@@ -31,7 +34,8 @@ export async function POST(req: Request) {
   }
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ error: "company is required" }, { status: 400 });
-  const run: RunRequest = { ...parsed.data, focus: parsed.data.focus || undefined };
+  const { watchId, ...rest } = parsed.data;
+  const run: RunRequest = { ...rest, focus: rest.focus || undefined };
 
   const quota = takeRun(clientIp(req));
   if (!quota.ok) {
@@ -53,7 +57,8 @@ export async function POST(req: Request) {
       };
       try {
         // req.signal fires when the user closes the tab or hits Stop, which stops the agent (and the spend).
-        await runAgent(run, emit, req.signal);
+        if (watchId) await runWatchCheck(watchId, emit, req.signal);
+        else await runAgent(run, emit, req.signal);
       } catch (err) {
         if (!req.signal.aborted) emit({ type: "error", message: describeError(err) });
       } finally {

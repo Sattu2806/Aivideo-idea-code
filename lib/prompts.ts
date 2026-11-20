@@ -94,6 +94,22 @@ export function userMessage(req: RunRequest): string {
   const subjectLine = req.mode === "market" ? `Market / category to map: ${req.company}` : `Company to analyse: ${req.company}`;
   const base = `${subjectLine}${req.focus ? `\nFocus: ${req.focus}` : ""}\nToday's date: ${today}`;
 
+  if (req.previous) {
+    const { date, report, competitors } = req.previous;
+    const when = date.slice(0, 10);
+    const previous = JSON.stringify({ report, competitors }).slice(0, MAX_CONTEXT_CHARS);
+    return `${base}
+
+This is a scheduled re-check (watch mode). The last report is from ${when}; it is below.
+Research again and find what CHANGED since then: pricing and plans, new features or products, positioning, funding or major news, and any new competitor worth adding.
+- Use assign_researchers for the competitors again, so every profile is re-verified with fresh sources (record_competitor with the current details, even if nothing changed).
+- The report must start with a section "## What changed since ${when}" listing each concrete change with its source link. If nothing material changed, say so plainly in that section.
+- The rest of the report is the full, updated analysis.
+
+Previous report (JSON):
+${previous}`;
+  }
+
   if (!req.followUp) return base;
 
   const { question, report, competitors } = req.followUp;

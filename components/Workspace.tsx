@@ -52,7 +52,7 @@ export function Workspace({ agent }: { agent: Agent }) {
       {/* ------------ Left: the file ------------ */}
       <aside className="file">
         <div className="kicker">
-          {running ? (isFollowUp ? "Digging deeper" : "Under research") : fromFiles ? "From your files" : report ? "Report filed" : "Run ended"} ·{" "}
+          {running ? (agent.watchId ? "Re-checking" : isFollowUp ? "Digging deeper" : "Under research") : fromFiles ? "From your files" : report ? "Report filed" : "Run ended"} ·{" "}
           {MODE_LABEL[mode]}
         </div>
         <h1 className="subject">{target}</h1>
@@ -170,7 +170,24 @@ export function Workspace({ agent }: { agent: Agent }) {
           )}
         </section>
 
-        {report && <ReportView report={report} competitors={competitors} target={target} citations={agent.citations} />}
+        {report && (
+          <ReportView
+            report={report}
+            competitors={competitors}
+            target={target}
+            citations={agent.citations}
+            changes={agent.changes}
+            watching={(() => {
+              const w = agent.watches.find((x) => x.id === agent.watchId) ?? agent.watches.find((x) => x.company === target && x.mode === mode);
+              return w ? { nextRunAt: w.nextRunAt } : null;
+            })()}
+            onWatch={agent.watchCurrent}
+            onUnwatch={() => {
+              const w = agent.watches.find((x) => x.id === agent.watchId) ?? agent.watches.find((x) => x.company === target && x.mode === mode);
+              if (w) agent.unwatch(w.id);
+            }}
+          />
+        )}
         {report && !running && (
           <section className="deeper">
             <div className="section-head">

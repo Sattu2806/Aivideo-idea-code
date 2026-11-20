@@ -14,8 +14,10 @@ Built with Next.js. Runs on **Gemini (free API key)**, **Claude**, **Claude on A
 - **A team of agents:** the lead assigns one researcher per competitor; they run at the same time (two at a time on Gemini's free tier) and each returns a cited profile.
 - **Citation checker:** before review, every link in the report is opened and the model checks whether the page really supports the claim next to it, for example the exact price. Wrong citations are sent back to be fixed. Sites that block automated reading are marked "couldn't open" and don't block the report.
 - **Self-review:** an independent reviewer model checks each report against a checklist and sends it back with specific fixes.
+- **Watch mode:** click **Watch weekly** under a report. The team re-researches the company on a schedule and the report opens with "What changed since …". The app also compares the competitor profiles itself (new or dropped competitors, price changes, threat-level changes) and shows them in a **Changes** panel, in the PDF, and optionally as a Slack/Discord message.
+- **White-label PDFs:** click **Brand** to set your company name, logo, accent colour, the client it's "Prepared for", and a footer contact line. Every PDF and Markdown export uses it.
 - **Your files:** finished reports are saved in your browser and listed on the home page.
-- **Export:** PDF (branded print layout), Markdown, or copy.
+- **Export:** PDF (print layout with your branding), Markdown, or copy.
 - **Live board:** an animated map of the team at work: the lead (orange comet) and each researcher (labelled ink comets) fly to the pages they read, sources cluster around the competitor they belong to, cited sources turn green ✓ or orange ✗ as they're checked, and the reviewer stamps the result. The landing page plays a demo of it.
 
 ## How the agents work
@@ -98,6 +100,25 @@ Every run spends API credits or free-tier quota, so set these before you share a
 | `ACCESS_CODE` | Visitors must enter this code to run the agent. Leave empty for open access (only on your own machine). |
 | `MAX_RUNS_PER_HOUR` | Runs allowed per IP address per hour. Default 5; `0` means no limit. Kept in server memory, so on serverless hosts it's best effort; use Upstash Redis or Vercel KV for a strict limit. |
 
+## Watch mode setup
+
+Watches are stored on the server and re-checked by `/api/watch/cron`, which runs every watch that's due.
+
+**On your own computer:** watches are saved in `./.data/watches.json`. Set `CRON_SECRET` in `.env.local`, then schedule this command (for example with cron, or Task Scheduler on Windows) to run once a day:
+
+```bash
+curl -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/watch/cron
+```
+
+You can also open a watch on the home page and press **Check now** at any time.
+
+**On Vercel:**
+1. Create a free Upstash Redis database and add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. (Vercel's file system doesn't keep files between requests.)
+2. Add `CRON_SECRET`. `vercel.json` already schedules the check daily at 06:00 UTC; each watch is re-run when its interval (7 days) has passed.
+3. Optional: add `WATCH_WEBHOOK_URL` (a Slack or Discord incoming webhook) to get a message when something changes.
+
+Each cron call runs up to `WATCH_RUNS_PER_CRON` watches (default 2) so it stays inside time limits; the rest run on the next call.
+
 ## Cost
 
 - **Gemini free tier:** $0, within Google's free limits.
@@ -111,6 +132,8 @@ Every run spends API credits or free-tier quota, so set these before you share a
 | `lib/agent.ts` | Picks the provider from your settings and starts the run |
 | `lib/team.ts` | The team: lead agent, parallel researchers, citation check and review |
 | `lib/citations.ts` | Citation checker: finds each linked claim, opens the page, asks the model to judge |
+| `lib/watch/` | Watch mode: storage (file or Upstash), re-check runner, profile comparison, alerts |
+| `app/api/watch/` | Watchlist API and the cron endpoint |
 | `lib/providers/types.ts` | The interface every provider implements (run a loop, make a JSON call) |
 | `lib/providers/claude.ts` | Agent loop for Claude (Claude API and Azure Foundry), with built-in web tools |
 | `lib/providers/generic.ts` | Agent loop for Gemini and Azure OpenAI, running web tools in this server |
@@ -127,7 +150,8 @@ Every run spends API credits or free-tier quota, so set these before you share a
 | `components/DemoBoard.tsx` | Scripted, looping demo of the live board for the home page |
 | `components/AgentBoard.tsx` | The animated live board |
 | `components/Workspace.tsx` | Run view: plan, board, log, competitor ledger, dig deeper |
-| `components/ReportView.tsx` | Report view plus PDF / Markdown export |
+| `components/ReportView.tsx` | Report view, changes panel, watch button, PDF / Markdown export |
+| `components/BrandModal.tsx`, `useBrand.ts` | White-label settings for exports |
 | `components/useAgent.ts` | Client state: streams events, follow-ups, saved files |
 | `app/globals.css` | Design (paper, ink, one accent colour) and the print (PDF) layout |
 
@@ -135,5 +159,5 @@ Every run spends API credits or free-tier quota, so set these before you share a
 
 - Run it every week and email you what changed in competitor pricing.
 - Export straight to Google Docs or Notion.
-- Watch mode: re-run weekly and highlight what changed (prices, features, positioning).
-- White-label PDFs with a client's logo and colours.
+- Email the weekly changes digest instead of (or as well as) Slack.
+- Share links: a public read-only page per report.

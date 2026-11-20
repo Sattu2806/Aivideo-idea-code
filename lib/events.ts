@@ -54,6 +54,14 @@ export interface CitationStats {
   unreachable: number;
 }
 
+/** One concrete difference between two runs, found by comparing the competitor profiles. */
+export interface Change {
+  kind: "new" | "removed" | "pricing" | "threat";
+  company: string;
+  before?: string;
+  after?: string;
+}
+
 // `agent` is "lead" or a researcher id; omitted means "lead".
 export type AgentEvent =
   | { type: "meta"; provider: ProviderInfo; search: string }
@@ -73,6 +81,7 @@ export type AgentEvent =
   | { type: "cite_result"; id: string; verdict: CiteVerdict; note?: string }
   | { type: "review"; approved: boolean; issues: string[]; attempt: number; citations?: CitationStats }
   | { type: "report"; report: Report }
+  | { type: "changes"; since: string; changes: Change[]; watchId: string }
   | {
       type: "usage";
       input_tokens: number;
@@ -91,9 +100,18 @@ export interface FollowUp {
   competitors: Competitor[];
 }
 
+export interface PreviousRun {
+  /** ISO date of the earlier run */
+  date: string;
+  report: Report;
+  competitors: Competitor[];
+}
+
 export interface RunRequest {
   company: string;
   focus?: string;
   mode: Mode;
   followUp?: FollowUp;
+  /** Set on watch-mode re-checks: the run to compare against. */
+  previous?: PreviousRun;
 }

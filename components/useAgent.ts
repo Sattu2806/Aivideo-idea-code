@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentEvent, CitationStats, CiteVerdict, Competitor, Mode, PlanStep, ProviderInfo, Report, RunRequest, TeamMember } from "@/lib/events";
+import type { AgentEvent, Change, CitationStats, CiteVerdict, Competitor, Mode, PlanStep, ProviderInfo, Report, RunRequest, TeamMember } from "@/lib/events";
 
 /** `agent` is "lead" or a researcher id ("r1", …). */
 export type Activity = { uid: number; agent: string } & (
@@ -27,6 +27,20 @@ export interface SavedFile {
 const ACCESS_KEY = "intel-access-code";
 const HISTORY_KEY = "intel-history";
 const MAX_HISTORY = 12;
+
+/** A watchlist entry as returned by GET /api/watch. */
+export interface WatchSummary {
+  id: string;
+  company: string;
+  mode: Mode;
+  focus?: string;
+  intervalDays: number;
+  createdAt: string;
+  nextRunAt: string;
+  runningSince?: string;
+  runCount: number;
+  latest: { at: string; report: Report; competitors: Competitor[]; citations?: CitationStats; changes: Change[] } | null;
+}
 
 export const MODE_LABEL: Record<Mode, string> = { competitors: "Competitors", battlecards: "Battle cards", market: "Market map" };
 
@@ -63,13 +77,17 @@ export function useAgent() {
   const [history, setHistory] = useState<SavedFile[]>([]);
   const [isFollowUp, setIsFollowUp] = useState(false);
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const [watches, setWatches] = useState<WatchSummary[]>([]);
+  const [watchStore, setWatchStore] = useState<string | null>(null);
+  const [changes, setChanges] = useState<{ since: string; list: Change[] } | null>(null);
+  const [watchId, setWatchId] = useState<string | null>(null);
   const [citations, setCitations] = useState<CitationStats | null>(null);
 
   // Access code
   const [accessRequired, setAccessRequired] = useState(false);
   const [accessCode, setAccessCode] = useState<string | null>(null);
   const [needsCode, setNeedsCode] = useState(false);
-  const pending = useRef<RunRequest | null>(null);
+  const pending = useRef<(RunRequest & { watchId?: string }) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const uidRef = useRef(0);
   // Latest values for saving to history when a report arrives.
@@ -167,6 +185,9 @@ export function useAgent() {
         case "team":
           setTeam(event.members);
           break;
+        case "changes":
+          setChanges({ since: event.since, list: event.changes });
+          break;
         case "member":
           setTeam((t) => t.map((m) => (m.id === event.id ? { ...m, status: event.status } : m)));
           break;
@@ -196,7 +217,7 @@ export function useAgent() {
   );
 
   const start = useCallback(
-    async (req: RunRequest, code: string | null) => {
+    async (req: RunRequest & { watchId?: string }, code: string | null) => {
       if (accessRequired && !code) {
         pending.current = req;
         setNeedsCode(true);
@@ -220,6 +241,8 @@ export function useAgent() {
       setError("");
       setTeam([]);
       setCitations(null);
+      setChanges(null);
+      setWatchId(req.watchId ?? null);
       setStartedAt(Date.now());
       setFinishedAt(null);
 
@@ -272,8 +295,10 @@ export function useAgent() {
         setStatus("");
         setFinishedAt(Date.now());
         setPhase(gotReport || followUp ? "done" : failed ? "error" : "done");
+        if (req.watchId) refreshWatches(code);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [accessRequired, handle],
   );
 
@@ -320,6 +345,8 @@ export function useAgent() {
     setReport(f.report);
     setTeam([]);
     setCitations(f.citations ?? null);
+    setChanges(null);
+    setWatchId(null);
     setUsage(null);
     setError("");
     setStartedAt(null);
@@ -330,6 +357,82 @@ export function useAgent() {
     const next = loadHistory().filter((h) => h.id !== id);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
     setHistory(next);
+  }, []);
+
+  // ---- watch mode -----------------------------------------------------------
+  const authHeaders = (code: string | null): Record<string, string> => (code ? { "x-access-code": code } : {});
+
+  async function refreshWatches(code: string | null = accessCode) {
+    try {
+      const res = await fetch("/api/watch", { headers: authHeaders(code) });
+      if (!res.ok) return;
+      const d = (await res.json()) as { watches: WatchSummary[]; store: string };
+      setWatches(d.watches);
+      setWatchStore(d.store);
+    } catch {
+      // watchlist unavailable: ignore
+    }
+  }
+
+  useEffect(() => {
+    refreshWatches(localStorage.getItem(ACCESS_KEY));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const watchCurrent = useCallback(
+    async (intervalDays: number): Promise<string | null> => {
+      if (!report) return "No report to watch yet.";
+      const res = await fetch("/api/watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(accessCode) },
+        body: JSON.stringify({ company: target, mode, intervalDays, baseline: { report, competitors } }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return d.error ?? `HTTP ${res.status}`;
+      setWatchId(d.watch.id);
+      await refreshWatches();
+      return null;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [report, target, mode, competitors, accessCode],
+  );
+
+  const unwatch = useCallback(
+    async (id: string) => {
+      await fetch(`/api/watch?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders(accessCode) });
+      if (watchId === id) setWatchId(null);
+      await refreshWatches();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accessCode, watchId],
+  );
+
+  const runWatch = useCallback(
+    (w: WatchSummary) => {
+      // Show the previous report's companies while the re-check runs.
+      start({ company: w.company, mode: w.mode, focus: w.focus, watchId: w.id }, accessCode);
+    },
+    [start, accessCode],
+  );
+
+  const openWatch = useCallback((w: WatchSummary) => {
+    if (!w.latest) return;
+    setPhase("done");
+    setIsFollowUp(false);
+    setTarget(w.company);
+    setMode(w.mode);
+    setPlan([]);
+    setActivity([]);
+    setCompetitors(w.latest.competitors);
+    setReport(w.latest.report);
+    setTeam([]);
+    setCitations(w.latest.citations ?? null);
+    setChanges(w.runCount > 1 ? { since: "", list: w.latest.changes } : null);
+    setWatchId(w.id);
+    setUsage(null);
+    setError("");
+    setStartedAt(null);
+    setFinishedAt(null);
   }, []);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
@@ -349,6 +452,7 @@ export function useAgent() {
   return {
     phase, target, mode, status, plan, activity, thinking, competitors, report, usage, error, startedAt, finishedAt,
     provider, searchBackend, history, isFollowUp, team, citations,
+    watches, watchStore, changes, watchId, watchCurrent, unwatch, runWatch, openWatch,
     accessRequired, needsCode, setNeedsCode, submitCode, run, followUp, openSaved, removeSaved, stop, reset,
   };
 }
