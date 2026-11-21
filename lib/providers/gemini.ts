@@ -8,7 +8,7 @@ export const geminiModel = () => process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const isPaid = () => process.env.GEMINI_PAID === "true";
 /** Lighter models to switch to when the main one is overloaded or hangs (free tiers often are). */
 const fallbackModels = () =>
-  (process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.5-flash-lite")
+  (process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.5-flash-lite,gemini-3.1-flash-lite")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
@@ -46,23 +46,34 @@ export function geminiKit(): AdapterKit {
     onWait: (s: number) => void,
     onSwitch: (model: string) => void,
   ): Promise<{ res: GenerateContentResponse; model: string }> {
-    for (let i = preferred; i < models.length; i++) {
-      const last = i === models.length - 1;
-      try {
-        const res = await withRetry(() => call(models[i], AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)])), signal, onWait, last ? 5 : 2);
-        return { res, model: models[i] };
-      } catch (err) {
-        if (signal.aborted || last) throw err;
-        const status = (err as { status?: number }).status;
-        const name = (err as { name?: string }).name;
-        const overloaded = status === 503 || status === 500 || status === 429 || name === "AbortError" || name === "TimeoutError";
-        if (!overloaded) throw err;
-        overloadedUntil.set(models[i], Date.now() + OVERLOAD_MEMORY_MS);
-        preferred = Math.max(preferred, i + 1);
-        onSwitch(models[i + 1]);
+    // Free-tier availability changes minute to minute, so go down the list, then once more from the top.
+    let lastErr: unknown = new Error("No Gemini model available.");
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass === 1) {
+        onWait(30);
+        await new Promise((r) => setTimeout(r, 30_000));
+      }
+      for (let i = pass === 0 ? preferred : 0; i < models.length; i++) {
+        try {
+          const res = await withRetry(() => call(models[i], AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)])), signal, onWait, 2);
+          if (i !== preferred && pass === 1) preferred = i;
+          return { res, model: models[i] };
+        } catch (err) {
+          if (signal.aborted) throw err;
+          const status = (err as { status?: number }).status;
+          const name = (err as { name?: string }).name;
+          const overloaded = status === 503 || status === 500 || status === 429 || name === "AbortError" || name === "TimeoutError";
+          if (!overloaded) throw err;
+          lastErr = err;
+          overloadedUntil.set(models[i], Date.now() + OVERLOAD_MEMORY_MS);
+          if (pass === 0 && i + 1 < models.length) {
+            preferred = Math.max(preferred, i + 1);
+            onSwitch(models[i + 1]);
+          }
+        }
       }
     }
-    throw new Error("No Gemini model available.");
+    throw lastErr;
   }
 
   return {
