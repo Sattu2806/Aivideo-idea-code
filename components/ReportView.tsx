@@ -20,6 +20,18 @@ function toMarkdown(report: Report, brand: Brand) {
   return `# ${report.title}\n\n${by}${report.executive_summary}\n\n${report.report_markdown}\n${footer}`;
 }
 
+/** Drops a leading heading that just repeats the report title (models often add one). */
+export function bodyOf(report: Report) {
+  const m = report.report_markdown.match(/^\s*#{1,3}\s+(.+)\n+/);
+  if (!m) return report.report_markdown;
+  const words = (t: string) => new Set(t.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const a = words(m[1]);
+  const b = words(report.title);
+  const shared = [...a].filter((w) => b.has(w)).length;
+  const similar = shared / Math.max(1, Math.min(a.size, b.size)) >= 0.7;
+  return similar ? report.report_markdown.slice(m[0].length) : report.report_markdown;
+}
+
 const mdLinks = { a: (props: React.ComponentProps<"a">) => <a {...props} target="_blank" rel="noreferrer" /> };
 
 interface Props {
@@ -116,7 +128,7 @@ export function ReportView({ report, competitors, target, citations, changes, wa
         {citations && citations.checked > 0 && <CitationBadge c={citations} />}
         <p className="doc-summary">{report.executive_summary}</p>
         <div className="markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>{report.report_markdown}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>{bodyOf(report)}</ReactMarkdown>
         </div>
       </article>
 
@@ -233,7 +245,7 @@ function PrintDocument({ report, competitors, target, date, brand, changes }: { 
       )}
 
       <section className="pd-section pd-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.report_markdown}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{bodyOf(report)}</ReactMarkdown>
       </section>
 
       <footer className="pd-footer">

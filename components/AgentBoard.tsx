@@ -428,7 +428,7 @@ export function AgentBoard(props: Props) {
               {s.failed && <path d="M-6 -6 L6 6 M6 -6 L-6 6" />}
               {v === "supported" && <path d="M-3.2 0.2 L-0.8 2.6 L3.4 -2.4" className="tick" />}
               {v === "unsupported" && <path d="M-3 -3 L3 3 M3 -3 L-3 3" className="cross" />}
-              <text x={right ? 13 : -13} y={4.5} textAnchor={right ? "start" : "end"}>{clip(s.host, 22)}</text>
+              <text x={right ? 13 : -13} y={4.5} textAnchor={right ? "start" : "end"}>{clip(s.host, right ? 22 : 18)}</text>
             </g>
           );
         })}
@@ -437,8 +437,10 @@ export function AgentBoard(props: Props) {
         {L.comps.map((c) => {
           const p = posOf(c.id);
           const sc = pop(c.id);
-          // Label on the side facing the centre; its sources fan out on the far side.
-          const side = Math.abs(p.x) < 70 ? 0 : p.x > 0 ? -1 : 1;
+          // Label on the side facing the centre (its sources fan out on the far side),
+          // except near the centre line, where a long name would run into the subject's label:
+          // there it goes above or below the dot.
+          const side = Math.abs(p.x) < 70 || Math.abs(p.y) < 75 ? 0 : p.x > 0 ? -1 : 1;
           const lx = side * 30;
           const ly = side === 0 ? (p.y > 0 ? 44 : -32) : 9;
           return (
