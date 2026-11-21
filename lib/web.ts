@@ -124,11 +124,11 @@ const MAX_TEXT = 24_000;
 
 export async function webFetch(rawUrl: string, signal: AbortSignal): Promise<FetchedPage> {
   const url = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
-  await assertPublicUrl(url); // never hand private addresses to anyone, directly or via Tavily
   try {
-    return await directFetch(url, signal);
+    return await directFetch(url, signal); // checks every hop for private addresses
   } catch (err) {
-    // Many sites block automated readers. If a Tavily key is set, read the page through Tavily instead.
+    // Many sites block automated readers. If a Tavily key is set, read the page through Tavily
+    // instead (it fetches from Tavily's side). URLs refused as private are never passed on.
     if (!process.env.TAVILY_API_KEY || signal.aborted || /private address|only http/.test(String(err))) throw err;
     try {
       return await tavilyExtract(url.toString(), signal);

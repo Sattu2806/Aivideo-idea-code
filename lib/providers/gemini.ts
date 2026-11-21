@@ -13,6 +13,9 @@ const fallbackModels = () =>
     .map((m) => m.trim())
     .filter(Boolean);
 const CALL_TIMEOUT_MS = 90_000;
+// Models found overloaded recently are skipped by later runs too (this server process).
+const overloadedUntil = new Map<string, number>();
+const OVERLOAD_MEMORY_MS = 10 * 60_000;
 
 /**
  * Prepares history written by one model for another: thought text is dropped and
@@ -33,7 +36,7 @@ export function geminiKit(): AdapterKit {
   const primary = geminiModel();
   const models = [primary, ...fallbackModels().filter((m) => m !== primary)];
   // Shared by every agent in the run: once a model is found overloaded, later calls start further down the list.
-  let preferred = 0;
+  let preferred = Math.max(0, models.findIndex((m) => (overloadedUntil.get(m) ?? 0) < Date.now()));
   let callSeq = 0;
 
   /** Calls the model, retrying, and moving to a fallback model when it's overloaded or hangs. */
@@ -54,6 +57,7 @@ export function geminiKit(): AdapterKit {
         const name = (err as { name?: string }).name;
         const overloaded = status === 503 || status === 500 || status === 429 || name === "AbortError" || name === "TimeoutError";
         if (!overloaded) throw err;
+        overloadedUntil.set(models[i], Date.now() + OVERLOAD_MEMORY_MS);
         preferred = Math.max(preferred, i + 1);
         onSwitch(models[i + 1]);
       }

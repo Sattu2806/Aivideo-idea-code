@@ -27,7 +27,7 @@ import {
 //   checks     every submitted report gets a citation check, then a review
 // ---------------------------------------------------------------------------
 
-const LEAD_TURNS = 30;
+const LEAD_TURNS = 40;
 const RESEARCHER_TURNS = 12;
 const MAX_REVIEW_ROUNDS = 2;
 const MAX_ASSIGN_CALLS = 2;
@@ -62,6 +62,7 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
   let assignCalls = 0;
   let reviewRounds = 0;
   let finished = false;
+  const lastSubmitted: { current: { report: import("./events").Report; issues: string[] } | null } = { current: null };
 
   function recordCompetitor(input: unknown, agent: string): ToolOutcome {
     const p = CompetitorInput.safeParse(input);
@@ -162,6 +163,7 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
         .catch(() => ({ approved: true, issues: [] as string[] }));
       const issues = [...cites.issues, ...review.issues];
       const approved = issues.length === 0;
+      lastSubmitted.current = { report: p.data, issues };
       emit({ type: "review", approved, issues, attempt: reviewRounds, citations: cites.stats });
       if (!approved) {
         return { content: `The report was sent back. Fix these issues, then call submit_report again:\n- ${issues.join("\n- ")}`, isError: true };
@@ -225,5 +227,13 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
     meter,
   });
 
+  if (!finished && lastSubmitted.current) {
+    // Out of steps after a report was written: deliver it rather than nothing, with the open notes.
+    const { report, issues } = lastSubmitted.current;
+    const notes = issues.length ? `\n\n---\n\n> **Reviewer notes not yet addressed:**\n${issues.map((i) => `> - ${i}`).join("\n")}` : "";
+    emit({ type: "status", message: "Step limit reached — delivering the last draft with the reviewer's notes." });
+    emit({ type: "report", report: { ...report, report_markdown: report.report_markdown + notes } });
+    finished = true;
+  }
   if (!finished) emit({ type: "error", message: end ?? "The agent stopped without a final report." });
 }
