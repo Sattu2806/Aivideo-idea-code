@@ -4,7 +4,7 @@ import type { AdapterKit, ChatAdapter, ToolCall } from "./generic";
 
 // Google Gemini (works with the free API key from aistudio.google.com).
 
-export const geminiModel = () => process.env.GEMINI_MODEL || "gemini-2.5-flash";
+export const geminiModel = () => process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const isPaid = () => process.env.GEMINI_PAID === "true";
 
 export function geminiKit(): AdapterKit {

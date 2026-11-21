@@ -31,9 +31,21 @@ export function searchBackend(): "tavily" | "gemini" | "duckduckgo" {
 export async function webSearch(query: string, signal: AbortSignal): Promise<SearchResponse> {
   const backend = searchBackend();
   if (backend === "tavily") return tavilySearch(query, signal);
-  if (backend === "gemini") return geminiSearch(query, signal);
+  if (backend === "gemini" && !geminiSearchRefused) {
+    try {
+      return await geminiSearch(query, signal);
+    } catch (err) {
+      // Free Gemini keys often get no Google Search allowance (429/403 on every
+      // search call even when normal calls work). Fall back to DuckDuckGo for
+      // the rest of this server's life instead of failing every search.
+      const status = (err as { status?: number }).status;
+      if (signal.aborted || (status !== 429 && status !== 403)) throw err;
+      geminiSearchRefused = true;
+    }
+  }
   return duckDuckGoSearch(query, signal);
 }
+let geminiSearchRefused = false;
 
 async function tavilySearch(query: string, signal: AbortSignal): Promise<SearchResponse> {
   const res = await fetch("https://api.tavily.com/search", {
@@ -53,11 +65,13 @@ async function geminiSearch(query: string, signal: AbortSignal): Promise<SearchR
   const res = await withRetry(
     () =>
       ai.models.generateContent({
-        model: process.env.GEMINI_SEARCH_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash",
+        model: process.env.GEMINI_SEARCH_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash",
         contents: `Search the web for: ${query}\n\nList the most relevant findings as short bullet points with the specific facts (names, prices, numbers) you found.`,
         config: { tools: [{ googleSearch: {} }], abortSignal: signal },
       }),
     signal,
+    undefined,
+    2,
   );
   const chunks = res.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
   const results = chunks
@@ -109,7 +123,38 @@ const MAX_BYTES = 2_000_000;
 const MAX_TEXT = 24_000;
 
 export async function webFetch(rawUrl: string, signal: AbortSignal): Promise<FetchedPage> {
-  let url = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+  const url = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+  await assertPublicUrl(url); // never hand private addresses to anyone, directly or via Tavily
+  try {
+    return await directFetch(url, signal);
+  } catch (err) {
+    // Many sites block automated readers. If a Tavily key is set, read the page through Tavily instead.
+    if (!process.env.TAVILY_API_KEY || signal.aborted || /private address|only http/.test(String(err))) throw err;
+    try {
+      return await tavilyExtract(url.toString(), signal);
+    } catch {
+      throw err; // report the original reason
+    }
+  }
+}
+
+async function tavilyExtract(url: string, signal: AbortSignal): Promise<FetchedPage> {
+  const res = await fetch("https://api.tavily.com/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.TAVILY_API_KEY}` },
+    body: JSON.stringify({ urls: [url] }),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+  });
+  if (!res.ok) throw new Error(`Tavily extract failed (HTTP ${res.status})`);
+  const data = (await res.json()) as { results?: { url: string; raw_content?: string }[] };
+  const page = data.results?.[0];
+  if (!page?.raw_content) throw new Error("Tavily couldn't read the page");
+  const firstLine = page.raw_content.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").trim() ?? "";
+  return { url: page.url || url, title: firstLine.slice(0, 120), text: page.raw_content.slice(0, MAX_TEXT) };
+}
+
+async function directFetch(start: URL, signal: AbortSignal): Promise<FetchedPage> {
+  let url = start;
   for (let hop = 0; hop < 5; hop++) {
     await assertPublicUrl(url);
     const res = await fetch(url, {

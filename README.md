@@ -62,7 +62,7 @@ cp .env.example .env.local      # fill in ONE provider section
 npm run dev
 ```
 
-Open http://localhost:3000. The home page shows which model it will use ("Runs on Gemini · gemini-2.5-flash").
+Open http://localhost:3000. The home page shows which model it will use ("Runs on Gemini · gemini-3.5-flash").
 
 ## Choosing a provider
 

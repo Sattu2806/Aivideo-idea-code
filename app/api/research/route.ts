@@ -87,6 +87,11 @@ function describeError(err: unknown): string {
   if (err instanceof Anthropic.BadRequestError) return `Bad request: ${err.message}`;
   if (err instanceof Anthropic.APIError) return `API error ${err.status ?? ""}: ${err.message}`;
   const status = (err as { status?: number }).status;
+  const msg = err instanceof Error ? err.message : "";
+  if (status === 404 && /no longer available|not found/i.test(msg)) {
+    return "That AI model isn't available to your key. Set GEMINI_MODEL (or CLAUDE_MODEL / AZURE_OPENAI_DEPLOYMENT) in .env.local to a model your key can use.";
+  }
+  if (status === 503) return "The AI model is overloaded right now (high demand). Wait a minute and try again, or pick another model with GEMINI_MODEL.";
   if (status === 401 || status === 403) return "The AI provider rejected the API key. Check your .env.local settings.";
   if (status === 429) return "The AI provider's rate limit was hit. Free tiers allow only a few requests per minute; wait and try again.";
   return err instanceof Error ? err.message : "Unknown error";
