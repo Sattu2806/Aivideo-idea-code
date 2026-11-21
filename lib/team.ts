@@ -31,6 +31,9 @@ const LEAD_TURNS = 30;
 const RESEARCHER_TURNS = 12;
 const MAX_REVIEW_ROUNDS = 2;
 const MAX_ASSIGN_CALLS = 2;
+const LEAD_WEB_BEFORE_ASSIGN = 6; // enough to identify the companies
+const LEAD_WEB_AFTER_ASSIGN = 8; // filling gaps after the researchers report
+const RESEARCHER_WEB = 8;
 
 export async function runTeam(provider: Provider, req: RunRequest, emit: (e: AgentEvent) => void, signal: AbortSignal) {
   // Usage across every agent in the run.
@@ -71,6 +74,7 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
   // ---- one researcher -------------------------------------------------------
   async function runResearcher(member: TeamMember, website?: string, focus?: string) {
     let recorded: Competitor | null = null;
+    let webCalls = 0;
     let summary = "";
     let done = false;
     const end = await provider
@@ -96,6 +100,10 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
           return invalid(`unknown tool ${name}`);
         },
         isDone: () => done,
+        webGuard: () =>
+          ++webCalls > RESEARCHER_WEB
+            ? "Refused: you've used your web budget. Call record_competitor now with what you found, then finish_research."
+            : null,
         maxTurns: RESEARCHER_TURNS,
         nudge: "Finish now: call record_competitor with what you have found (if you haven't), then finish_research.",
         effort: "low",
@@ -165,6 +173,8 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
   }
 
   // ---- the lead -------------------------------------------------------------
+  let leadWebBefore = 0;
+  let leadWebAfter = 0;
   const end = await provider.runLoop({
     agent: "lead",
     system: leadPrompt(req.mode),
@@ -198,6 +208,16 @@ export async function runTeam(provider: Provider, req: RunRequest, emit: (e: Age
       }
     },
     isDone: () => finished,
+    webGuard: () => {
+      if (assignCalls === 0) {
+        return ++leadWebBefore > LEAD_WEB_BEFORE_ASSIGN
+          ? "Refused: you have enough to identify the main companies. Call assign_researchers now with 3-5 of them (they research in depth); don't research them yourself."
+          : null;
+      }
+      return ++leadWebAfter > LEAD_WEB_AFTER_ASSIGN
+        ? "Refused: research budget used. Write the report from the researchers' profiles and call submit_report."
+        : null;
+    },
     maxTurns: LEAD_TURNS,
     nudge: "Continue with the plan. When the research is complete, call submit_report.",
     emit,

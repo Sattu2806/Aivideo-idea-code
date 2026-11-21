@@ -43,6 +43,7 @@ export interface AdapterKit {
 }
 
 const MAX_RESULT_CHARS = 24_000;
+const MAX_WEB_PER_TURN = 4;
 
 export function makeGenericProvider(info: ProviderInfo, webLabel: string, kit: AdapterKit): Provider {
   async function runLoop(o: LoopOptions): Promise<LoopEnd> {
@@ -68,11 +69,20 @@ export function makeGenericProvider(info: ProviderInfo, webLabel: string, kit: A
       }
       if (r.truncated) return "A tool call was cut off by the output limit.";
 
-      // Web calls in one turn run in parallel; the agent's own tools run in order after them.
+      // Web calls in one turn run in parallel (at most MAX_WEB_PER_TURN); the agent's own tools run in order after them.
       const isWeb = (c: ToolCall) => c.name === "web_search" || c.name === "web_fetch";
-      const webCalls = r.calls.filter(isWeb);
-      const webOut = await Promise.all(webCalls.map((c) => runWebTool(c, agent, emit, signal, () => meter.add({ searches: 1 }))));
-      const byCall = new Map(webCalls.map((c, i) => [c, webOut[i]]));
+      const byCall = new Map<ToolCall, { content: string; isError: boolean }>();
+      const allowed: ToolCall[] = [];
+      for (const c of r.calls.filter(isWeb)) {
+        const refusal =
+          allowed.length >= MAX_WEB_PER_TURN
+            ? `Refused: at most ${MAX_WEB_PER_TURN} web calls per turn. Use what you have, then continue.`
+            : o.webGuard?.(c.name as "web_search" | "web_fetch") ?? null;
+        if (refusal) byCall.set(c, { content: refusal, isError: true });
+        else allowed.push(c);
+      }
+      const webOut = await Promise.all(allowed.map((c) => runWebTool(c, agent, emit, signal, () => meter.add({ searches: 1 }))));
+      allowed.forEach((c, i) => byCall.set(c, webOut[i]));
       for (const call of r.calls) {
         if (isWeb(call)) continue;
         const out = await o.exec(call.name, call.args);

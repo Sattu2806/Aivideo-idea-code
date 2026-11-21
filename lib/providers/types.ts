@@ -28,6 +28,12 @@ export interface LoopOptions {
   maxTurns: number;
   /** Sent when the model stops without finishing. */
   nudge: string;
+  /**
+   * Called before each web_search / web_fetch this server runs. Return a message to
+   * refuse the call (the model sees it as the tool result), or null to allow it.
+   * Keeps weaker models on the workflow. Built-in web tools (Claude) aren't affected.
+   */
+  webGuard?: (tool: "web_search" | "web_fetch") => string | null;
   /** Claude only: thinking depth for this loop. */
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   emit: (e: AgentEvent) => void;
