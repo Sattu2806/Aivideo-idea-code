@@ -1,4 +1,4 @@
-import { GoogleGenAI, type Content, type Part } from "@google/genai";
+import { GoogleGenAI, type Content, type GenerateContentResponse, type Part } from "@google/genai";
 import { withRetry } from "../web";
 import type { AdapterKit, ChatAdapter, ToolCall } from "./generic";
 
@@ -6,37 +6,91 @@ import type { AdapterKit, ChatAdapter, ToolCall } from "./generic";
 
 export const geminiModel = () => process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const isPaid = () => process.env.GEMINI_PAID === "true";
+/** Lighter models to switch to when the main one is overloaded or hangs (free tiers often are). */
+const fallbackModels = () =>
+  (process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.5-flash-lite")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+const CALL_TIMEOUT_MS = 90_000;
+
+/**
+ * Prepares history written by one model for another: thought text is dropped and
+ * thought signatures (which only the model that wrote them can validate) are
+ * replaced by the placeholder Gemini accepts for history from elsewhere.
+ */
+function forOtherModel(contents: Content[]): Content[] {
+  return contents.map((c) => ({
+    ...c,
+    parts: (c.parts ?? [])
+      .filter((p) => !p.thought)
+      .map(({ thoughtSignature, ...p }) => (p.functionCall && thoughtSignature ? { ...p, thoughtSignature: "skip_thought_signature_validator" } : p)),
+  }));
+}
 
 export function geminiKit(): AdapterKit {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const model = geminiModel();
+  const primary = geminiModel();
+  const models = [primary, ...fallbackModels().filter((m) => m !== primary)];
+  // Shared by every agent in the run: once a model is found overloaded, later calls start further down the list.
+  let preferred = 0;
   let callSeq = 0;
+
+  /** Calls the model, retrying, and moving to a fallback model when it's overloaded or hangs. */
+  async function generate(
+    call: (model: string, signal: AbortSignal) => Promise<GenerateContentResponse>,
+    signal: AbortSignal,
+    onWait: (s: number) => void,
+    onSwitch: (model: string) => void,
+  ): Promise<{ res: GenerateContentResponse; model: string }> {
+    for (let i = preferred; i < models.length; i++) {
+      const last = i === models.length - 1;
+      try {
+        const res = await withRetry(() => call(models[i], AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)])), signal, onWait, last ? 5 : 2);
+        return { res, model: models[i] };
+      } catch (err) {
+        if (signal.aborted || last) throw err;
+        const status = (err as { status?: number }).status;
+        const name = (err as { name?: string }).name;
+        const overloaded = status === 503 || status === 500 || status === 429 || name === "AbortError" || name === "TimeoutError";
+        if (!overloaded) throw err;
+        preferred = Math.max(preferred, i + 1);
+        onSwitch(models[i + 1]);
+      }
+    }
+    throw new Error("No Gemini model available.");
+  }
 
   return {
     // Free keys allow only a few requests a minute, so researchers take turns.
     concurrency: isPaid() ? 4 : 2,
 
-    chat({ system, firstMessage, tools, onWait }): ChatAdapter {
+    chat({ system, firstMessage, tools, onWait, onNotice }): ChatAdapter {
       const contents: Content[] = [{ role: "user", parts: [{ text: firstMessage }] }];
+      let historyModel: string | null = null; // the model that wrote the model turns so far
+      const onSwitch = (m: string) => onNotice(`The main Gemini model is overloaded — switching to ${m}…`);
       const functionDeclarations = tools.map((t) => ({ name: t.name, description: t.description, parametersJsonSchema: t.parameters }));
       return {
         async next(signal) {
-          const res = await withRetry(
-            () =>
+          const { res, model } = await generate(
+            (model, sig) =>
               ai.models.generateContent({
                 model,
-                contents,
+                contents: historyModel && historyModel !== model ? forOtherModel(contents) : contents,
                 config: {
                   systemInstruction: system,
                   tools: [{ functionDeclarations }],
                   thinkingConfig: { includeThoughts: true },
                   maxOutputTokens: 32000,
-                  abortSignal: signal,
+                  abortSignal: sig,
                 },
               }),
             signal,
             onWait,
+            onSwitch,
           );
+          if (historyModel && historyModel !== model) contents.splice(0, contents.length, ...forOtherModel(contents));
+          historyModel = model;
           const candidate = res.candidates?.[0];
           const parts: Part[] = candidate?.content?.parts ?? [];
           contents.push({ role: "model", parts }); // as returned: keeps thought signatures intact
@@ -77,16 +131,17 @@ export function geminiKit(): AdapterKit {
       };
     },
 
-    async json(system, user, schema, signal, onWait) {
-      const res = await withRetry(
-        () =>
+    async json(system, user, schema, signal, onWait, onNotice) {
+      const { res } = await generate(
+        (model, sig) =>
           ai.models.generateContent({
             model,
             contents: user,
-            config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, abortSignal: signal },
+            config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, abortSignal: sig },
           }),
         signal,
         onWait,
+        (m) => onNotice(`The main Gemini model is overloaded — switching to ${m}…`),
       );
       return res.text;
     },

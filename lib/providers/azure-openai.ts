@@ -66,7 +66,7 @@ export function azureOpenAIKit(): AdapterKit {
       };
     },
 
-    async json(system, user, schema, signal, onWait) {
+    async json(system, user, schema, signal, onWait, _onNotice) {
       const res = await withRetry(
         () =>
           client.chat.completions.create(

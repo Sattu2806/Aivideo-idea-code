@@ -29,8 +29,15 @@ export interface ChatAdapter {
 
 export interface AdapterKit {
   /** A fresh conversation for one agent loop. */
-  chat(init: { system: string; firstMessage: string; tools: ToolDef[]; onWait: (s: number) => void }): ChatAdapter;
-  json(system: string, user: string, schema: Record<string, unknown>, signal: AbortSignal, onWait: (s: number) => void): Promise<string | undefined>;
+  chat(init: { system: string; firstMessage: string; tools: ToolDef[]; onWait: (s: number) => void; onNotice: (message: string) => void }): ChatAdapter;
+  json(
+    system: string,
+    user: string,
+    schema: Record<string, unknown>,
+    signal: AbortSignal,
+    onWait: (s: number) => void,
+    onNotice: (message: string) => void,
+  ): Promise<string | undefined>;
   cost(t: Totals): number | null;
   concurrency: number;
 }
@@ -42,7 +49,8 @@ export function makeGenericProvider(info: ProviderInfo, webLabel: string, kit: A
     const { agent, emit, signal, meter } = o;
     const lead = agent === "lead";
     const onWait = (s: number) => emit({ type: "status", message: `Rate limit reached, waiting ${s}s (free tiers are slow)…` });
-    const chat = kit.chat({ system: o.system, firstMessage: o.firstMessage, tools: [...WEB_TOOLS, ...o.tools], onWait });
+    const onNotice = (message: string) => emit({ type: "status", message });
+    const chat = kit.chat({ system: o.system, firstMessage: o.firstMessage, tools: [...WEB_TOOLS, ...o.tools], onWait, onNotice });
     let nudges = 0;
 
     for (let turn = 0; turn < o.maxTurns; turn++) {
@@ -81,7 +89,7 @@ export function makeGenericProvider(info: ProviderInfo, webLabel: string, kit: A
     webLabel,
     concurrency: kit.concurrency,
     runLoop,
-    json: (system, user, schema, signal) => kit.json(system, user, schema, signal, () => {}),
+    json: (system, user, schema, signal) => kit.json(system, user, schema, signal, () => {}, () => {}),
     cost: kit.cost,
   };
 }
